@@ -242,6 +242,43 @@ async def get_user_scores(db, user_name, check_for_score_method=False) -> list[d
     return scoresdict
 
 
+async def get_event_info_by_scheduled_event_id(db, scheduled_event_id: int, division_id: int = None, team_id: int = None):
+    """Get all info pertaining to a specific event"""
+
+    sql_getevent = """
+        SELECT 
+            es.id, 
+            e.name, 
+            es.utc_start_dt, 
+            es.utc_end_dt, 
+            es.event_id,
+            es.scoring_method,
+            es.num_mulligans,
+            COALESCE(COUNT(el.id), 0) as num_lineups,
+            GROUP_CONCAT(d.name ORDER BY d.name SEPARATOR ', ') AS all_divisions,
+            GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') AS all_teams
+        FROM events_scheduled es
+        JOIN events e ON e.id = es.event_id
+        LEFT JOIN event_lineups el ON el.scheduled_event_id = es.id
+        LEFT JOIN divisions d ON d.scheduled_event_id = es.id
+        LEFT JOIN teams t ON t.scheduled_event_id = es.id
+        WHERE es.id = %s
+    """
+    params = [scheduled_event_id]
+
+    if division_id is not None:
+        sql_getevent += " AND d.id = %s"
+        params.append(division_id)
+
+    if team_id is not None:
+        sql_getevent += " AND t.id = %s"
+        params.append(team_id)
+
+    selectedEvent = await execute_query(db, sql_getevent, params=params, fetch="one")
+
+    return selectedEvent
+
+
 async def get_latest_event(db, event_id=None):
     """Get most recent event, return a dict containing the unique id,
     name of event, and start date of the event
