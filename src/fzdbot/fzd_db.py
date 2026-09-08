@@ -265,8 +265,19 @@ async def get_latest_event(db, event_id=None):
 
     return selectedevent
 
+async def get_event_scoreboard(db, scheduled_event_id: int, division_id: int = None, team_id: int = None):
+    """Query the FZD database for all scores of a given event,
+    defined by scheduled_event_id. Can optionally filter results by division_id or team_id.
 
-async def get_event_scoreboard(db, db_user_id: int, event_type=None):
+    Returns event results grouped by player: player	| team | division |	num_submissions	| score	| user_emote | team_emote | division_emote | qualifier_emote
+    Emotes may be reworked and handled in a separate logic layer in the future.
+    """
+    sql_getscoreboard = "sp_show_scoreboard_NEW" ##@TODO: MOVE SQL INTO HERE DIRECTLY
+
+    allscores = await execute_query(db, sql_getscoreboard, params=(scheduled_event_id, division_id, team_id), isProc=True)
+    return allscores
+
+async def get_event_scoreboard_old(db, db_user_id: int, event_type=None):
     """Query the FZD database for all scores of a given event,
     defined by scheduled_event_id.
 

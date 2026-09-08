@@ -17,7 +17,7 @@ from fzdbot.fzd_db import (
     get_db_connection,  # connect_to_database
     get_event_scoreboard,
     get_event_types,
-    get_user_id,
+    get_latest_event,
 )
 from fzdbot.settings import get_settings
 
@@ -44,54 +44,75 @@ class Scoreboard(commands.Cog):
     @app_commands.command(
         name="fzd_show", description="Show most current FZD event scoreboard"
     )  # ,  guild=GUILD_ID)
+
+
+
+
+    async def scoreboardFunction(db, eventInfo, division_id: int = None, team_id: int = None):
+
+        eventdate = eventInfo["utc_start_dt"].replace(tzinfo=timezone.utc)
+        title = eventInfo["name"]
+        description = f"*Played on {format_discord_timestamp(eventdate)}"
+
+        if division_id:
+            title = title + " - " + division_id
+
+        outputBody = await self.getScoreBoardResultsJSON(db, eventinfo["id"])
+        scoreboard = discord.Embed(title=title, description=description)
+        scoreboard.set_thumbnail(url=thumbnail)
+        for i, block in enumerate(outputBody, start=1):
+            scoreboard.add_field(name="", value=block, inline=False)
+        return scoreboard
+
+
+    
+    ## @TODO move to API
+    ## @TODO return JSON
+    async def getScoreBoardResultsJSON(db, scheduled_event_id: int, division_id: int = None, team_id: int = None):
+
+        eventscoreslist = await get_event_scoreboard(db, scheduled_event_id, division_id, team_id)
+        if not eventscoreslist:
+            return ["NO RESULTS TO DISPLAY YET"]
+
+        ranked_scoreboard = format_scoreboard_display_text(eventscoreslist)
+        settings = get_settings()
+        fields_display_text = format_scoreboard_for_discord_embed(ranked_scoreboard, max_num_lines=settings.scoreboard_lines_per_block)
+        return fields_display_text
+
+
+
     async def showScoreboard(self, interaction: discord.Interaction, event_type: str | None = None):
         logger.debug("[showScoreboard] Invoked by %s with event_type=%s", interaction.user, event_type)
+
         try:
+
+            # Fetch Event Info from user selection
             await interaction.response.defer()
             async with get_db_connection() as db:
-                db_user_id = await get_user_id(db, interaction.user.name)
-                eventinfo, eventscoreslist = await get_event_scoreboard(db, db_user_id, event_type=event_type)
+                eventinfo = await get_latest_event(db, event_type=event_type)
 
-            if not eventinfo:
-                if event_type:
-                    event_name = [e["name"] for e in self.recurring_events if e["id"] == int(event_type)]
-                    await interaction.followup.send(
-                        f"⚠️  No results found for event_type '{event_name[0]}'! If this is unexpected behavior contact a mod!",
-                        ephemeral=True,
-                    )
+                # Validate user selection
+                if not eventinfo:
+                    if event_type:
+                        event_name = [e["name"] for e in self.recurring_events if e["id"] == int(event_type)]
+                        await interaction.followup.send(
+                            f"⚠️  No results found for event_type '{event_name[0]}'! If this is unexpected behavior contact a mod!",
+                            ephemeral=True,
+                        )
+                    else:
+                        await interaction.followup.send(
+                            "❌ ERROR! Something unexpected went wrong, contact an FZD mod to help!", ephemeral=True
+                        )
+                        logger.warning("[showScoreboard] Unknown issue encountered by %s", interaction.user)
+
+                # If we have a valid event, fetch the scoreboard results and format them for display
                 else:
-                    await interaction.followup.send(
-                        "❌ ERROR! Something unexpected went wrong, contact an FZD mod to help!", ephemeral=True
-                    )
-                    logger.warning("[showScoreboard] Unknown issue encountered by %s", interaction.user)
-            else:
-                eventdate = eventinfo["utc_start_dt"].replace(tzinfo=timezone.utc)
-                title = eventinfo["name"]
-                if not eventscoreslist:
-                    scoreboard = discord.Embed(
-                        title=title, description=f"*Played on {format_discord_timestamp(eventdate)}*"
-                    )
-                    scoreboard.add_field(name="", value="NO RESULTS TO DISPLAY YET", inline=False)
-                else:
-                    # Check for division name, put in title if so
-                    has_divisions = any(d.get("division") is not None for d in eventscoreslist)
-                    if has_divisions:
-                        title = title + " - " + eventscoreslist[0]["division"]
 
-                    scoreboard = discord.Embed(
-                        title=title, description=f"*Played on {format_discord_timestamp(eventdate)}*"
-                    )
-                    scoreboard.set_thumbnail(url=thumbnail)
+                    #title, description = await self.getScoreBoardHeader(db, eventinfo["id"])
+                    scoreboard = await self.scoreboardFunction(db, eventinfo)
+                    await interaction.followup.send(embed=scoreboard)
 
-                    ranked_scoreboard = format_scoreboard_display_text(eventscoreslist)
-                    settings = get_settings()
-                    fields_display_text = format_scoreboard_for_discord_embed(
-                        ranked_scoreboard, max_num_lines=settings.scoreboard_lines_per_block
-                    )
-                    for i, block in enumerate(fields_display_text, start=1):
-                        scoreboard.add_field(name="", value=block, inline=False)
 
-                await interaction.followup.send(embed=scoreboard)
         except Exception as error:
             logger.exception(
                 "[showScoreboard] Exception user=%r event_type=%r",
