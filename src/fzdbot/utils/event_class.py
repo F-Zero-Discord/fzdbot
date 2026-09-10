@@ -13,7 +13,6 @@ from fzdbot.fzd_db import (
     get_event_teams,
     get_machines,
     get_machine_config_db,
-    get_race_config_db,
     get_user_registrations,
     create_update_event,
     create_update_scheduled_event,
@@ -557,11 +556,13 @@ class Machine():
 
 
 class Race():
+    # Note: This class needs a major overhaul now that we are not storing 
+    #   this in JSON anymore.
     def __init__(self):
         self.id: int | None = None
         self.db_id: int | None = None
         self.name: str | None = None
-        self.time: datetime | None = None
+        self.start_time: datetime | None = None
         self.private: bool = False
 
 
@@ -575,7 +576,7 @@ class Race():
                         race_string = ""
                         race_string += f"\t**Race/Prix #{self.id}**\n"
                         race_string += f"\t\t**Name:** {self.name}\n"
-                        race_string += f"\t\t**Start:** {discord_timestamp(self.time, "long")}\n"
+                        race_string += f"\t\t**Start:** {discord_timestamp(self.start_time, "long")}\n"
                         race_string += f"\t\t**Private:** {self.private}\n"
                         return race_string
                 case _:
@@ -591,38 +592,15 @@ class Race():
         for race_dict in race_dict_list:
             race = Race()
             if "id" in race_dict:
-                race.id = race_dict["id"]
-            race.db_id = race_dict["db_id"]
-            race.name = race_dict["name"]
-            if "time" in race_dict:
-                race.time = race_dict["time"]
+                race.id = race_dict["db_id"]
+            race.lineup_id = race_dict["lineup_id"]
+            race.name = race_dict["lineup_name"]
+            if "start_time" in race_dict:
+                race.start_time = race_dict["start_time"]
             if "private" in race_dict:
                 race.private = race_dict["private"]
             race_list.append(race)
         return race_list
-
-
-    @staticmethod
-    def unique_races_to_json(races: list[Self]):
-        if not races:
-            return None
-        else:
-            # Get unique races
-            unique_ids = set()
-            unique_races = []
-            for race in races:
-                if race.db_id not in unique_ids:
-                    unique_ids.add(race.db_id)
-                    unique_races.append(race)
-
-            # Create json
-            race_json = "["
-            for i, race in enumerate(unique_races, start=1):
-                race_json += f'{{"db_id": {race.db_id}}}'
-                if i != len(unique_races):
-                    race_json += ','
-            race_json += "]"
-            return race_json
 
 
     @staticmethod
@@ -639,7 +617,7 @@ class Race():
         """
         """
         async with get_db_connection() as db:
-            race_dict_list = await get_race_config_db(db, scheduled_event_id)
+            race_dict_list = await get_event_lineups_and_scores(db, scheduled_event_id)
 
         return race_dict_list
     

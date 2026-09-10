@@ -23,6 +23,7 @@ class RankConstants():
         self.MAX_RANK: Final[int] = 99
 
 AUTOCOMPLETE_CACHE_SECONDS: Final[int] = 10 # time in seconds
+AUTOASSIGN_LINEUP_WINDOW: Final[int] = 2100 # time in seconds. Note 2100/60 = 35 min
     
 @lru_cache
 def get_time_constants() -> TimeConstants:

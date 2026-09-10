@@ -1176,35 +1176,6 @@ async def get_default_lineups(db):
         return None
 
 
-async def get_race_config_db(db, scheduled_event_id):
-    """
-    """
-    sql_get_race_config = """   SELECT DISTINCT
-                                    jt.race_id AS db_id,
-                                    COALESCE(gm.name, gp.name) AS name
-                                FROM events_scheduled_config esc
-                                -- 1. Unpack all db_id values from the JSON array
-                                CROSS JOIN JSON_TABLE(
-                                    esc.prix_options,
-                                    '$[*]' COLUMNS (
-                                        race_id INT PATH '$.db_id'
-                                    )
-                                ) AS jt
-                                -- 2. Try to match against game_mode
-                                LEFT JOIN game_modes gm 
-                                    ON gm.id = jt.race_id
-                                -- 3. Try to match against grand_prix
-                                LEFT JOIN grand_prix gp 
-                                    ON gp.id = jt.race_id
-                                WHERE esc.scheduled_event_id = %s -- Replace with your event filter
-                                -- 4. Filter out any IDs that didn't match either table
-                                AND (gm.id IS NOT NULL OR gp.id IS NOT NULL);
-                            """
-    params = (scheduled_event_id,)
-    race_dict = await execute_query(db, sql_get_race_config, params=params, fetch="all", isProc=False)
-    return race_dict
-
-
 async def update_event_machines(db, scheduled_event_id: int, machine_json: str) -> int:
     """ On Duplicate SQL needed to preserve existing primary key and not auto-increment it
     """
@@ -1263,6 +1234,7 @@ async def get_event_lineups_and_scores(db, scheduled_event_id: int,
             sql_lineup_and_score =  """ SELECT el.id AS event_lineup_id,
                                             el.lineup_num AS lineup_num,
                                             l.name AS lineup_name,
+                                            el.start_time AS start_time,
                                             ep.score AS score
                                         FROM event_lineups el
                                         INNER JOIN lineups l
@@ -1276,6 +1248,7 @@ async def get_event_lineups_and_scores(db, scheduled_event_id: int,
             sql_lineup_and_score =  """ SELECT el.id AS event_lineup_id,
                                             el.lineup_num AS lineup_num,
                                             l.name AS lineup_name,
+                                            el.start_time AS start_time,
                                             ep.time AS score
                                         FROM event_lineups el
                                         INNER JOIN lineups l
@@ -1302,6 +1275,7 @@ async def get_event_config_flags(db, scheduled_event_id: int) -> dict:
     """
     sql_get_config =    """ SELECT is_machine_input_required AS is_machine_input_required,
                                 is_lineup_input_required AS is_lineup_input_required,
+                                autoassign_score_to_lineup AS autoassign_score_to_lineup,
                                 is_registration_event AS is_registration_event
                             FROM events_scheduled_config
                             WHERE scheduled_event_id = %s 
@@ -1325,6 +1299,13 @@ async def get_event_config_flags(db, scheduled_event_id: int) -> dict:
             flag_dict["is_lineup_input_required"] = int.from_bytes(raw_machine_flag, byteorder="big") == 1
         else:
             flag_dict["is_lineup_input_required"] = bool(raw_machine_flag)
+
+        # Transform is_lineup_input_required from bit to bool
+        raw_machine_flag = flag_dict.get("autoassign_score_to_lineup")
+        if isinstance(raw_machine_flag, (bytes, bytearray)):
+            flag_dict["autoassign_score_to_lineup"] = int.from_bytes(raw_machine_flag, byteorder="big") == 1
+        else:
+            flag_dict["autoassign_score_to_lineup"] = bool(raw_machine_flag)
 
         # Transform is_registration_event from bit to bool
         raw_machine_flag = flag_dict.get("is_registration_event")

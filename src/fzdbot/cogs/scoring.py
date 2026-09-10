@@ -5,7 +5,7 @@ import logging
 
 from typing import Literal
 import datetime as dt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 import asyncio
 import discord
@@ -35,7 +35,8 @@ from fzdbot.constants import (
     get_score_constants, 
     get_rank_constants, 
     get_time_constants,
-    AUTOCOMPLETE_CACHE_SECONDS
+    AUTOCOMPLETE_CACHE_SECONDS,
+    AUTOASSIGN_LINEUP_WINDOW
 )
 from fzdbot.views.confirm_delete import ConfirmDeleteScore
 from fzdbot.utils.warnings import (
@@ -61,18 +62,20 @@ class Scoring(commands.Cog):
     # ==========================================================================================
     # Set the autocomplete cache and cache expiration
     _OPTIONS_CACHE = {
-        "lineup_option_list": [], # list of dict[lineup_id, combined string]
+        "lineup_option_list": [], # list of dict[lineup_id, combined string, time]
         "machine_option_list": [], # list of dict[db_id, name]
         "last_updated": 0
     }
     _EVENT_CONFIG_CACHE = {
         "scoring_method": None,
         "is_lineup_input_required": False,
+        "autoassign_score_to_lineup": False,
         "is_machine_input_required": False,
         "is_registration_event": False,
         "last_updated": 0
     }
     _ACTIVE_TTL_SECONDS: int = AUTOCOMPLETE_CACHE_SECONDS
+    _AUTOASSIGN_LINEUP_WINDOW: int = AUTOASSIGN_LINEUP_WINDOW
 
 
     # ==========================================================================================
@@ -283,6 +286,7 @@ class Scoring(commands.Cog):
         self._OPTIONS_CACHE["machine_option_list"] = []
         self._EVENT_CONFIG_CACHE["scoring_method"] = None
         self._EVENT_CONFIG_CACHE["is_lineup_input_required"] = False
+        self._EVENT_CONFIG_CACHE["autoassign_score_to_lineup"] = False
         self._EVENT_CONFIG_CACHE["is_machine_input_required"] = False
         self._EVENT_CONFIG_CACHE["is_registration_event"] = False
 
@@ -308,6 +312,7 @@ class Scoring(commands.Cog):
         # Set event flags
         if event_config_flag_dict:
             self._EVENT_CONFIG_CACHE["is_lineup_input_required"] = event_config_flag_dict["is_lineup_input_required"]
+            self._EVENT_CONFIG_CACHE["autoassign_score_to_lineup"] = event_config_flag_dict["autoassign_score_to_lineup"]
             self._EVENT_CONFIG_CACHE["is_machine_input_required"] = event_config_flag_dict["is_machine_input_required"]
             self._EVENT_CONFIG_CACHE["is_registration_event"] = event_config_flag_dict["is_registration_event"]
         
@@ -334,8 +339,11 @@ class Scoring(commands.Cog):
                                 lineup_string += f" - {scoring_label} {lineup_dict["score"]}"
                             case "time":
                                 lineup_string += f" - {scoring_label} {(lineup_dict["score"] + datetime.min).strftime("%M:%S:%f")[:-4]}"
-                    self._OPTIONS_CACHE["lineup_option_list"].append(
-                        {"name": lineup_string, "value": str(lineup_dict["event_lineup_id"])})
+                    self._OPTIONS_CACHE["lineup_option_list"].append({
+                            "name": lineup_string, 
+                            "value": str(lineup_dict["event_lineup_id"]), 
+                            "start_time": lineup_dict["start_time"].replace(tzinfo=timezone.utc) if lineup_dict["start_time"] is not None else None
+                            })
                 # else condition managed in autocomplete method.
 
             # Get the machine list in format easy to create app_commands.Choice entries with.
@@ -346,6 +354,52 @@ class Scoring(commands.Cog):
         self._OPTIONS_CACHE["last_updated"] = time.monotonic()
 
         return active_event, user_id
+
+
+    @classmethod
+    def check_for_active_lineup(self) -> tuple[int | None, str | None]:
+        """ Checks cache data to see if there is a lineup with a 
+            start time associated with the result submission.
+        """
+        # First Check: Check to see if the lineups have times associated 
+        #   with them. Create new list with all lineups where "start_time" 
+        #   exists. If resulting list does not exist, return None
+        print("First Check")
+        lineup_option_list = [
+            lineup for lineup in self._OPTIONS_CACHE["lineup_option_list"] if lineup["start_time"] is not None
+            ]
+        print(f"lineup_option_list: {lineup_option_list}")
+        if not lineup_option_list:
+            return None, None
+
+        # Second Check: Remove all lineups with times > datetime.now. If 
+        #   none are left, return None.
+        print("Second Check")
+        now = datetime.now(timezone.utc)
+        lineup_option_list = [lineup for lineup in lineup_option_list if lineup["start_time"] <= now]
+        if not lineup_option_list:
+            return None, None
+        
+        # Third Check: Find the lineup in the list with the time closest 
+        #   to datetime.now but are not after.
+        print("Third Check")
+        closest_lineup: None | dict = None
+        for lineup in lineup_option_list:
+            if closest_lineup == None:
+                closest_lineup = lineup
+            elif abs(now - lineup["start_time"]) < abs(now - closest_lineup["start_time"]):
+                closest_lineup = lineup
+
+        # Fourth Check: See if closest past datetime is within window.
+        #   Rather than let the last race/lineup be used until the end 
+        #   of the event, only allow assignment to lineup until a config
+        #   expiry. Submissions after that time are not assigned to a 
+        #   lineup. If past expiry, return None.
+        print("Fourth Check")
+        if abs(now - closest_lineup["start_time"]) > timedelta(seconds=self._AUTOASSIGN_LINEUP_WINDOW):
+            return None, None
+        else:
+            return int(closest_lineup["value"]), closest_lineup["name"]
 
 
     # ==================================================================
@@ -521,6 +575,10 @@ class Scoring(commands.Cog):
             lineup_id, lineup_name = await Scoring.validate_lineup(interaction, lineup)
             await Scoring.validate_required_options(interaction, machine, lineup)
 
+            # If event calls for time-based lineup assignment, do it here
+            if not lineup_id:
+                lineup_id, lineup_name = Scoring.check_for_active_lineup()
+
             user_data = [
                 db_user_id,
                 current_event["id"],
@@ -588,6 +646,10 @@ class Scoring(commands.Cog):
             machine_id, machine_name = await Scoring.validate_machine(interaction, machine)
             lineup_id, lineup_name = await Scoring.validate_lineup(interaction, lineup)
             await Scoring.validate_required_options(interaction, machine, lineup)
+
+            # If event calls for time-based lineup assignment, do it here
+            if not lineup_id:
+                lineup_id, lineup_name = Scoring.check_for_active_lineup()
 
             user_data = [
                 db_user_id,
@@ -667,6 +729,10 @@ class Scoring(commands.Cog):
             machine_id, machine_name = await Scoring.validate_machine(interaction, machine)
             lineup_id, lineup_name = await Scoring.validate_lineup(interaction, lineup)
             await Scoring.validate_required_options(interaction, machine, lineup)
+
+            # If event calls for time-based lineup assignment, do it here
+            if not lineup_id:
+                lineup_id, lineup_name = Scoring.check_for_active_lineup()
 
             user_data = [
                 db_user_id,
