@@ -276,10 +276,6 @@ async def get_event_info_by_scheduled_event_id(db, scheduled_event_id: int, divi
         sql_getevent += " AND t.id = %s"
         params.append(team_id)
 
-    logger.info("SCHEDULED EVENT ID: %s, DIVISION ID: %s, TEAM ID: %s", scheduled_event_id, division_id, team_id)
-    logger.info("SQL: %s", sql_getevent)
-    logger.info("Params: %s", params)
-
     selectedEvent = await execute_query(db, sql_getevent, params=params, fetch="one")
 
     if selectedEvent and selectedEvent["divisions"]:
@@ -345,9 +341,50 @@ async def get_event_scoreboard(db, scheduled_event_id: int, division_id: int = N
     Returns event results grouped by player: player	| team | division |	num_submissions	| score	| user_emote | team_emote | division_emote | qualifier_emote
     Emotes may be reworked and handled in a separate logic layer in the future.
     """
-    sql_getscoreboard = "sp_show_scoreboard_NEW" ##@TODO: MOVE SQL INTO HERE DIRECTLY
+    #sql_getscoreboard = "sp_show_scoreboard_NEW" ##@TODO: MOVE SQL INTO HERE DIRECTLY
+    params = [scheduled_event_id]
+    sql_getscoreboard = """SELECT COALESCE(u.tag, u.discord_user_id) AS player, t.name as team, d.name as division, COUNT(erp.event_lineup_id) AS num_submissions, SUM(erp.score) AS score, u.emote as user_emote, t.emote as team_emote, d.emote as division_emote, q.emote as qualifier_emote 
+                            FROM event_result_points erp 
+                            JOIN users u ON u.id = erp.user_id 
+                            LEFT JOIN (
+                                SELECT ut.user_id, t.name, t.scheduled_event_id, t.emote 
+                                FROM user_teams ut 
+                                JOIN teams t ON t.id = ut.team_id 
+                            ) t ON t.user_id = erp.user_id AND t.scheduled_event_id = erp.scheduled_event_id 
+                            LEFT JOIN (
+                                SELECT ud.user_id, d.name, d.scheduled_event_id, d.emote 
+                                FROM user_divisions ud 
+                                JOIN divisions d ON d.id = ud.division_id 
+                            ) d ON d.user_id = erp.user_id AND d.scheduled_event_id = erp.scheduled_event_id 
+                            LEFT JOIN (
+                                SELECT uq.user_id, q.emote 
+                                FROM user_qualifiers uq 
+                                JOIN qualifiers q ON q.id = uq.qualifier_id 
+                                JOIN events_scheduled es ON es.id = q.scheduled_event_id 
+                                WHERE uq.is_participating = 1 
+                                AND now() < es.utc_start_dt 
+                            ) q ON q.user_id = erp.user_id 
+                            WHERE erp.scheduled_event_id = %s """
 
-    allscores = await execute_query(db, sql_getscoreboard, params=(scheduled_event_id, division_id, team_id), isProc=True)
+    if division_id is not None:
+        params.append(division_id)
+        sql_getscoreboard += "    AND erp.division_id = %s "
+    if team_id is not None:
+        params.append(team_id)
+        sql_getscoreboard += "    AND erp.team_id = %s "
+
+    sql_getscoreboard += """
+        GROUP BY player, team, division, user_emote, team_emote, division_emote, qualifier_emote 
+        ORDER BY division, score DESC;
+    """
+
+    sql_getscoreboard = " ".join(sql_getscoreboard.split())
+    logger.info("FETCHING SCORES")
+    logger.info(sql_getscoreboard)
+
+    
+
+    allscores = await execute_query(db, sql_getscoreboard, params=params, isProc=True)
     return allscores
 
 async def get_event_scoreboard_old(db, db_user_id: int, event_type=None):

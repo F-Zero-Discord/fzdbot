@@ -173,7 +173,7 @@ class Scoreboard(commands.Cog):
                 # If we have a valid event, fetch the scoreboard results and format them for display
                 else:
                     scoreboard = await self.initializeScoreboard(eventinfo)
-                    outputBody = await self.getScoreBoardResultsJSON(db, eventinfo["id"])
+                    outputBody = await self.getScoreBoardResultsJSON(db, eventinfo["id"], division_id, team_id)
                     for i, block in enumerate(outputBody, start=1):
                         scoreboard.add_field(name="", value=block, inline=False)
                     await interaction.followup.send(embed=scoreboard)
