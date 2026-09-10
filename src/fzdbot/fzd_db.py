@@ -242,6 +242,7 @@ async def get_user_scores(db, user_name, check_for_score_method=False) -> list[d
     return scoresdict
 
 
+
 async def get_event_info_by_scheduled_event_id(db, scheduled_event_id: int, division_id: int = None, team_id: int = None):
     """Get all info pertaining to a specific event"""
 
@@ -253,12 +254,13 @@ async def get_event_info_by_scheduled_event_id(db, scheduled_event_id: int, divi
             es.utc_end_dt, 
             es.event_id,
             es.scoring_method,
-            es.num_mulligans,
+            esc.num_mulligans,
             COALESCE(COUNT(el.id), 0) as num_lineups,
-            GROUP_CONCAT(d.name ORDER BY d.name SEPARATOR ', ') AS all_divisions,
-            GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') AS all_teams
+            GROUP_CONCAT(d.name ORDER BY d.name SEPARATOR ', ') AS divisions,
+            GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') AS teams
         FROM events_scheduled es
         JOIN events e ON e.id = es.event_id
+        LEFT JOIN events_scheduled_config esc ON esc.scheduled_event_id = es.id
         LEFT JOIN event_lineups el ON el.scheduled_event_id = es.id
         LEFT JOIN divisions d ON d.scheduled_event_id = es.id
         LEFT JOIN teams t ON t.scheduled_event_id = es.id
@@ -274,12 +276,46 @@ async def get_event_info_by_scheduled_event_id(db, scheduled_event_id: int, divi
         sql_getevent += " AND t.id = %s"
         params.append(team_id)
 
+    logger.info("SCHEDULED EVENT ID: %s, DIVISION ID: %s, TEAM ID: %s", scheduled_event_id, division_id, team_id)
+    logger.info("SQL: %s", sql_getevent)
+    logger.info("Params: %s", params)
+
     selectedEvent = await execute_query(db, sql_getevent, params=params, fetch="one")
+
+    if selectedEvent and selectedEvent["divisions"]:
+        selectedEvent["divisions"] = [item.strip() for item in selectedEvent["divisions"].split(',')]
+
+    if selectedEvent and selectedEvent["teams"]:
+        selectedEvent["teams"] = [item.strip() for item in selectedEvent["teams"].split(',')]
 
     return selectedEvent
 
 
-async def get_latest_event(db, event_id=None):
+
+async def get_latest_scheduled_event_by_event_id(db, event_id=None):
+    """Get most recent scheduled_event_id. returns a schedled_event_id
+    OPTIONAL: event_id to find latest of a specific event
+              type)subid if an event_id has multiple sub0events (i.e. GGP)
+              NOTE only ONE is allowed to be set when called!
+    """
+
+    sql_getevent = """SELECT es.id FROM events_scheduled es
+                    JOIN events e ON e.id = es.event_id
+                    WHERE utc_start_dt =
+                        (SELECT MAX(utc_start_dt) FROM events_scheduled 
+                         WHERE utc_start_dt < UTC_TIMESTAMP())"""
+    params = None
+    if event_id is not None:
+        sql_getevent = sql_getevent.replace("())", "() AND event_id = %s)")
+        params = (event_id,)
+
+    selectedevent = await execute_query(db, sql_getevent, params=params, fetch="one")
+
+    return selectedevent["id"]
+
+
+
+async def get_latest_event_old(db, event_id=None):
     """Get most recent event, return a dict containing the unique id,
     name of event, and start date of the event
     OPTIONAL: event_id to find latest of a specific event
