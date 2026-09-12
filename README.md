@@ -90,6 +90,7 @@ What happens when values are missing or empty:
 * Sync dependencies with `uv sync --dev`.
 * Run lint fixes and import sorting with `uv run ruff check . --fix`.
 * Run formatting with `uv run ruff format .`.
+* Run type checking with `uv run pyright`.
 
 ### Run the bot
 

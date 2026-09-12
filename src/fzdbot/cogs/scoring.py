@@ -2,25 +2,17 @@
 #         /add_score, /edit_score, /delete_score
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from fzdbot.error_alerts import send_error_alert
-from fzdbot.utils.db_utils import get_or_create_db_user
-from fzdbot.fzd_db import (
-    check_for_active_event,
-    delete_score,
-    edit_score,
-    get_db_connection,  # connect_to_database
-    get_machines,
-    get_user_scores,
-    submit_score,
-)
+from fzdbot.fzd_api import FzdApiError
 from fzdbot.settings import get_settings
-from fzdbot.views.confirm_delete import ConfirmDeleteScore
 from fzdbot.utils.warnings import InputWarnings
+from fzdbot.views.confirm_delete import ConfirmDeleteScore
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +21,33 @@ class Scoring(commands.Cog):
     def __init__(self, bot: commands.Bot, machine_dict: list[dict[str, str]]):
         self.bot = bot
         self.machine_dict = machine_dict
+        self._active_event_at: datetime | None = None
+        self._active_event: dict | None = None
 
     @classmethod
-    async def grab_machines(cls) -> list[dict[str, str]]:
+    async def grab_machines(cls, bot: commands.Bot) -> list[dict[str, str]]:
         """Fetch machine dictionaries used to initialize the cog."""
-        async with get_db_connection() as db:
-            return await get_machines(db)
+        return await bot.api.machines()
+
+    @staticmethod
+    async def respond(interaction: discord.Interaction, content: str, *, ephemeral: bool = False) -> None:
+        if interaction.response.is_done():
+            if ephemeral:
+                await interaction.edit_original_response(content=content)
+            else:
+                await interaction.followup.send(content, ephemeral=False)
+        else:
+            await interaction.response.send_message(content, ephemeral=ephemeral)
+
+    async def active_event(self) -> dict | None:
+        now = datetime.now(timezone.utc)
+        if self._active_event_at is not None and now - self._active_event_at < timedelta(seconds=10):
+            return self._active_event
+
+        events = await self.bot.api.active_events()
+        self._active_event_at = now
+        self._active_event = events[0] if events else None
+        return self._active_event
 
     # =============================================================================================================
     #   /add_score
@@ -54,79 +67,70 @@ class Scoring(commands.Cog):
             elif int(score) > maxscore:
                 raise OverflowError(f"score entered too large! {interaction.user}")
 
-            # Get user id first, or add user if not registered in database
-            async with get_db_connection() as db:
-                db_user_id = await get_or_create_db_user(db, interaction.user)
-                machine_list = [s["name"] for s in self.machine_dict if "name" in s]
-
-                # check an event is active before adding data
-                current_event = await check_for_active_event(db)
+            await interaction.response.defer()
+            machine_list = [s["name"] for s in self.machine_dict if "name" in s]
+            current_event = await self.active_event()
 
             # Warnings
-            if current_event["name"] == "NULL":
+            if current_event is None:
                 await InputWarnings.no_event(interaction, "points")
                 return
             if current_event["scoring_method"] != "points":
-                await InputWarnings.wrong_scoring_method(interaction, current_event["name"], "points")
+                await InputWarnings.wrong_scoring_method(interaction, current_event["event"], "points")
                 return
             if machine not in machine_list and machine is not None:
                 await InputWarnings.machine_not_found(interaction, machine, machine_list)
                 return
-            if current_event.get("is_machine_input_required") is True and machine is None:
+            if current_event.get("machine_input_required") is True and machine is None:
                 await InputWarnings.machine_needed(interaction)
                 return
 
             if machine is not None:
-                machine_choice = next(
-                    (item for item in self.machine_dict if item.get("name") == machine), None
-                )
-                machine_choice_id = machine_choice["id"] if machine_choice else None
+                machine_choice = next((item for item in self.machine_dict if item.get("name") == machine), None)
+                machine_choice_id = machine_choice["machine_id"] if machine_choice else None
                 machine_choice_name = machine_choice["name"] if machine_choice else None
             else:
                 machine_choice_id = None
                 machine_choice_name = None
 
-            user_data = [
-                db_user_id,
-                current_event["id"],
+            return_score = await self.bot.api.add_score(
+                interaction.user.id,
+                interaction.user.name,
+                interaction.user.display_name[:10],
+                current_event["scheduled_event_id"],
                 int(score),
-                current_event["scoring_method"],
                 machine_choice_id,
-            ]
-
-            # Add score to database
-            async with get_db_connection() as db:
-                return_score = await submit_score(db, user_data)  # interaction.user
-            await interaction.response.send_message(
-                f"✅ User {interaction.user} has entered a score of {return_score} to {current_event['name']} using machine {machine_choice_name}"
+            )
+            await self.respond(
+                interaction,
+                f"✅ User {interaction.user} has entered a score of {return_score['points']} to {current_event['event']} using machine {machine_choice_name}",
             )  # , ephemeral=True)
             logger.info(
                 "User %s entered score=%s for event=%s machine=%s",
                 interaction.user,
                 score,
-                current_event["name"],
+                current_event["event"],
                 machine_choice_name,
             )
 
         except (
             ValueError
         ):  # should catch negative numbers and any errors with int(score) if score is not a base 10 integer
-            await interaction.response.send_message(
-                "❌ ERROR! 'score' must be entered as a positive integer!  ", ephemeral=True
+            await self.respond(
+                interaction, "❌ ERROR! 'score' must be entered as a positive integer!  ", ephemeral=True
             )
         except OverflowError:
-            await interaction.response.send_message(
+            await self.respond(
+                interaction,
                 f"❌ ERROR! 'score' should not be larger than {maxscore}. Please be nice to Nightmare's bot.",
                 ephemeral=True,
             )
-        except TypeError:
-            await interaction.response.send_message(
-                "❌ ERROR! Could not add you to the database. Try the '/fzd_set_name' command, or contact FZD staff for help.",
-                ephemeral=True,
-            )
+        except FzdApiError as error:
+            logger.warning("FZD API error in add_score for user=%s: %s", interaction.user, error)
+            await self.respond(interaction, f"❌ ERROR! {error}", ephemeral=True)
         except Exception as error:
-            await interaction.response.send_message(
-                "❌ ERROR! Something went wrong, contact FZD staff for help! ", ephemeral=True
+            await self.respond(
+                interaction, "❌ ERROR! Something went wrong, contact FZD staff for help! ", ephemeral=True
             )
             logger.exception("Exception in add_score for user=%s", interaction.user)
             await send_error_alert(
@@ -152,76 +156,64 @@ class Scoring(commands.Cog):
             if int(rank) < 1 or int(rank) > maxrank:
                 raise ValueError(f"rank must be between 1 and 99 {interaction.user}")
 
-            # Get user id first, or add user if not registered in database
-            async with get_db_connection() as db:
-                db_user_id = await get_or_create_db_user(db, interaction.user)
-                machine_list = [s["name"] for s in self.machine_dict if "name" in s]
-
-                # check an event is active before adding data
-                current_event = await check_for_active_event(db)
+            await interaction.response.defer()
+            machine_list = [s["name"] for s in self.machine_dict if "name" in s]
+            current_event = await self.active_event()
 
             logger.debug("add_rank current_event=%r", current_event)
-            if current_event["name"] == "NULL":
+            if current_event is None:
                 await InputWarnings.no_event(interaction, "rank")
                 return
             if current_event["scoring_method"] == "points":
-                await InputWarnings.wrong_scoring_method(interaction, current_event["name"], "points")
+                await InputWarnings.wrong_scoring_method(interaction, current_event["event"], "points")
                 return
             if machine not in machine_list and machine is not None:
                 await InputWarnings.machine_not_found(interaction, machine, machine_list)
                 return
-            if current_event.get("is_machine_input_required") is True and machine is None:
+            if current_event.get("machine_input_required") is True and machine is None:
                 await InputWarnings.machine_needed(interaction)
                 return
 
             if machine is not None:
-                machine_choice = next(
-                    (item for item in self.machine_dict if item.get("name") == machine), None
-                )
-                machine_choice_id = machine_choice["id"] if machine_choice else None
+                machine_choice = next((item for item in self.machine_dict if item.get("name") == machine), None)
+                machine_choice_id = machine_choice["machine_id"] if machine_choice else None
                 machine_choice_name = machine_choice["name"] if machine_choice else None
             else:
                 machine_choice_id = None
                 machine_choice_name = None
 
-            user_data = [
-                db_user_id,
-                current_event["id"],
+            return_score = await self.bot.api.add_score(
+                interaction.user.id,
+                interaction.user.name,
+                interaction.user.display_name[:10],
+                current_event["scheduled_event_id"],
                 int(rank),
-                current_event["scoring_method"],
                 machine_choice_id,
-            ]
+            )
 
-            # Add rank to database
-            async with get_db_connection() as db:
-                return_score = await submit_score(db, user_data)  # interaction.user
-
-            await interaction.response.send_message(
-                f"✅ User {interaction.user} has entered rank {rank} → {return_score} points have been added to {current_event['name']} using machine {machine_choice_name}"
+            await self.respond(
+                interaction,
+                f"✅ User {interaction.user} has entered rank {rank} → {return_score['points']} points have been added to {current_event['event']} using machine {machine_choice_name}",
             )  # , ephemeral=True)
             logger.info(
                 "User %s entered rank=%s (%s points) for event=%s machine=%s",
                 interaction.user,
                 rank,
                 return_score,
-                current_event["name"],
+                current_event["event"],
                 machine_choice_name,
             )
 
         except (
             ValueError
         ):  # should catch negative numbers and any errors with int(score) if score is not a base 10 integer
-            await interaction.response.send_message(
-                "❌ ERROR! 'rank' must be between 1 and 99!  ", ephemeral=True
-            )
-        except TypeError:
-            await interaction.response.send_message(
-                "❌ ERROR! Could not add you to the database. Try the '/fzd_set_name' command, or contact FZD staff for help.",
-                ephemeral=True,
-            )
+            await self.respond(interaction, "❌ ERROR! 'rank' must be between 1 and 99!  ", ephemeral=True)
+        except FzdApiError as error:
+            logger.warning("FZD API error in add_rank for user=%s: %s", interaction.user, error)
+            await self.respond(interaction, f"❌ ERROR! {error}", ephemeral=True)
         except Exception as error:
-            await interaction.response.send_message(
-                "❌ ERROR! Something went wrong, contact FZD staff for help! ", ephemeral=True
+            await self.respond(
+                interaction, "❌ ERROR! Something went wrong, contact FZD staff for help! ", ephemeral=True
             )
             logger.exception("Exception in add_rank for user=%s", interaction.user)
             await send_error_alert(
@@ -235,20 +227,58 @@ class Scoring(commands.Cog):
     # Autocomplete handler for editScore and deleteScore
     # ------------------------------------------------------------------
     async def user_scores_autocomplete(self, interaction: discord.Interaction, current: str):
-        async with get_db_connection() as db:
-            user_scores = await get_user_scores(db, interaction.user.name)
+        try:
+            active_event = await self.active_event()
+            if active_event is None:
+                user_scores = [{"points": "NO CURRENT EVENT", "score_id": "-999"}]
+            else:
+                user_scores = await self.bot.api.list_scores(
+                    interaction.user.id, active_event["scheduled_event_id"]
+                )
+                if not user_scores:
+                    user_scores = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+        except FzdApiError as error:
+            if error.status == 404:
+                user_scores = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+            else:
+                logger.warning("FZD API error in score autocomplete for user=%s: %s", interaction.user, error)
+                return []
 
         # Filter based on what the user is currently typing
-        choices = [(opt["score"], opt["id"]) for opt in user_scores if current.lower() in opt["score"].lower()]
+        choices = [
+            (str(opt["points"]), opt["score_id"])
+            for opt in user_scores
+            if current.lower() in str(opt["points"]).lower()
+        ]
         # Return up to 25 results (discord limit)
         return [app_commands.Choice(name=opt, value=f"{opt}|{idopt}") for opt, idopt in choices[:25]]
 
     async def user_scores_autocomplete_nokingmaker(self, interaction: discord.Interaction, current: str):
-        async with get_db_connection() as db:
-            user_scores = await get_user_scores(db, interaction.user.name, check_for_score_method=True)
+        try:
+            active_event = await self.active_event()
+            if active_event is None:
+                user_scores = [{"points": "NO CURRENT EVENT", "score_id": "-999"}]
+            elif active_event["scoring_method"] == "placement":
+                user_scores = [{"points": "DISABLED FOR THIS EVENT", "score_id": "-888"}]
+            else:
+                user_scores = await self.bot.api.list_scores(
+                    interaction.user.id, active_event["scheduled_event_id"]
+                )
+                if not user_scores:
+                    user_scores = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+        except FzdApiError as error:
+            if error.status == 404:
+                user_scores = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+            else:
+                logger.warning("FZD API error in score autocomplete for user=%s: %s", interaction.user, error)
+                return []
 
         # Filter based on what the user is currently typing
-        choices = [(opt["score"], opt["id"]) for opt in user_scores if current.lower() in opt["score"].lower()]
+        choices = [
+            (str(opt["points"]), opt["score_id"])
+            for opt in user_scores
+            if current.lower() in str(opt["points"]).lower()
+        ]
         # Return up to 25 results (discord limit)
         return [app_commands.Choice(name=opt, value=f"{opt}|{idopt}") for opt, idopt in choices[:25]]
 
@@ -272,39 +302,52 @@ class Scoring(commands.Cog):
         #  old_score is returned packed as "<score>|<id>" when a proper option is selected
         opts = []
         try:
-            async with get_db_connection() as db:
-                valid_options = await get_user_scores(db, interaction.user.name, check_for_score_method=True)
-                opts = [s["score"] for s in valid_options if "score" in s]
-                score, idchoice = old_score.split("|")
-                if score not in opts:
-                    raise ValueError("score {score} not one of the options {opts}")
-
-            # Warnings
-            if score == "NO CURRENT EVENT":
+            await interaction.response.defer()
+            current_event = await self.active_event()
+            if current_event is None:
                 await InputWarnings.no_event(interaction, "edit")
                 return
-            elif score == "NO USER SCORES FOUND":
-                await InputWarnings.no_existing_score(interaction, interaction.user.name)
-                return
-            elif score == "DISABLED FOR THIS EVENT":
+            if current_event["scoring_method"] == "placement":
                 await InputWarnings.edit_disabled(interaction)
                 return
+            try:
+                valid_options = await self.bot.api.list_scores(
+                    interaction.user.id, current_event["scheduled_event_id"]
+                )
+            except FzdApiError as error:
+                if error.status != 404:
+                    raise
+                valid_options = []
+            if not valid_options:
+                valid_options = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+            opts = [str(s["points"]) for s in valid_options]
+            score, idchoice = old_score.split("|")
+            if score not in opts:
+                raise ValueError("score {score} not one of the options {opts}")
 
-            # Edit score in database
-            async with get_db_connection() as db:
-                await edit_score(db, (int(new_score), int(idchoice)))
-            await interaction.response.send_message(
-                f"✅ User {interaction.user.name} has modified submitted score from {score} to {new_score}"
+            # Warnings
+            if score == "NO USER SCORES FOUND":
+                await InputWarnings.no_existing_score(interaction, interaction.user.name)
+                return
+
+            await self.bot.api.edit_score(interaction.user.id, int(idchoice), int(new_score))
+            await self.respond(
+                interaction,
+                f"✅ User {interaction.user.name} has modified submitted score from {score} to {new_score}",
             )
 
         except (ValueError, TypeError) as e:
             logger.warning("Exception in editScore for user=%s: %s", interaction.user, e)
-            await interaction.response.send_message(
+            await self.respond(
+                interaction,
                 "❌  ERROR! Both options 'old_score' and 'new_score'  must be entered as integers! \n"
                 + f"    And 'old_score' must be one of the available options for you: {opts} \n"
                 + f"    ---> You chose: '{old_score}'",
                 ephemeral=True,
             )
+        except FzdApiError as error:
+            logger.warning("FZD API error in editScore for user=%s: %s", interaction.user, error)
+            await self.respond(interaction, f"❌ ERROR! {error}", ephemeral=True)
         except Exception as error:
             logger.exception("Unexpected exception in editScore for user=%s", interaction.user)
             await send_error_alert(
@@ -314,7 +357,8 @@ class Scoring(commands.Cog):
                 interaction=interaction,
                 details={"old_score": old_score, "new_score": new_score},
             )
-            await interaction.response.send_message(
+            await self.respond(
+                interaction,
                 "❌ ERROR! Something went wrong, contact FZD staff for help!",
                 ephemeral=True,
             )
@@ -331,25 +375,34 @@ class Scoring(commands.Cog):
         #  score_to_delete is returned packed as "<score>|<id>" when a proper option is selected
         opts = []
         try:
-            async with get_db_connection() as db:
-                valid_options = await get_user_scores(db, interaction.user.name)
-
-            opts = [s["score"] for s in valid_options if "score" in s]
+            await interaction.response.defer(ephemeral=True)
+            current_event = await self.active_event()
+            if current_event is None:
+                await InputWarnings.no_event(interaction, "delete")
+                return
+            try:
+                valid_options = await self.bot.api.list_scores(
+                    interaction.user.id, current_event["scheduled_event_id"]
+                )
+            except FzdApiError as error:
+                if error.status != 404:
+                    raise
+                valid_options = []
+            if not valid_options:
+                valid_options = [{"points": "NO USER SCORES FOUND", "score_id": "-999"}]
+            opts = [str(s["points"]) for s in valid_options]
             score, idchoice = score_to_delete.split("|")
-            
+
             if score not in opts:
                 raise ValueError("score {score} not one of the options {opts}")
 
             # Warnings
-            if score == "NO CURRENT EVENT":
-                await InputWarnings.no_event(interaction, "delete")
-                return
-            elif score == "NO USER SCORES FOUND":
+            if score == "NO USER SCORES FOUND":
                 await InputWarnings.no_existing_score(interaction, interaction.user.name)
                 return
 
             view = ConfirmDeleteScore(interaction)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"⚠️  Are you sure you want to delete '{score}' from your scores?",
                 view=view,
                 ephemeral=True,
@@ -361,8 +414,7 @@ class Scoring(commands.Cog):
                 return
 
             if view.confirmed:
-                async with get_db_connection() as db:
-                    await delete_score(db, [idchoice])
+                await self.bot.api.delete_score(interaction.user.id, int(idchoice))
                 await interaction.followup.send(
                     content=f"✅ User {interaction.user.name} has successfully deleted '{score}' from their submitted scores",
                     ephemeral=False,
@@ -372,11 +424,15 @@ class Scoring(commands.Cog):
 
         except (ValueError, TypeError) as e:
             logger.warning("Exception in deleteScore for user=%s: %s", interaction.user, e)
-            await interaction.response.send_message(
+            await self.respond(
+                interaction,
                 f"❌  ERROR! 'score_to_delete' must be one of the available options for you: {opts} \n"
                 + f"    ---> You chose: '{score_to_delete}'",
                 ephemeral=True,
             )
+        except FzdApiError as error:
+            logger.warning("FZD API error in deleteScore for user=%s: %s", interaction.user, error)
+            await self.respond(interaction, f"❌ ERROR! {error}", ephemeral=True)
         except Exception as error:
             logger.exception("Unexpected exception in deleteScore for user=%s", interaction.user)
             await send_error_alert(
@@ -386,16 +442,11 @@ class Scoring(commands.Cog):
                 interaction=interaction,
                 details={"score_to_delete": score_to_delete},
             )
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "❌ ERROR! Something went wrong, contact FZD staff for help!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    "❌ ERROR! Something went wrong, contact FZD staff for help!",
-                    ephemeral=True,
-                )
+            await self.respond(
+                interaction,
+                "❌ ERROR! Something went wrong, contact FZD staff for help!",
+                ephemeral=True,
+            )
 
     # Bind autocomplete handler to edit and delete commands in cog
     async def cog_load(self):
@@ -408,5 +459,5 @@ class Scoring(commands.Cog):
 async def setup(bot: commands.Bot):
     settings = get_settings()
     GUILD_ID = discord.Object(id=settings.server_id)
-    machine_dict = await Scoring.grab_machines()
+    machine_dict = await Scoring.grab_machines(bot)
     await bot.add_cog(Scoring(bot, machine_dict), guild=GUILD_ID)

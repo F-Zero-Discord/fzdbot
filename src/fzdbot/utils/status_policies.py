@@ -1,6 +1,6 @@
 import discord
 from fzdbot.utils.event_class import Event, UserRegistrations
-from fzdbot.utils.view_utils import NextStep, discord_timestamp
+from fzdbot.utils.view_utils import DivTeam, NextStep, discord_timestamp
 
 
 def user_event_status(event: Event, user: UserRegistrations) -> dict:
@@ -110,3 +110,46 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
                     "next_step": NextStep.NULL
                 }
         return status
+
+
+def registered_summary(
+    events: list[Event], user: UserRegistrations
+) -> list[tuple[Event, DivTeam | None, str | None]]:
+    """ What the user is signed up for, in the order they will race it.
+
+        Built by walking `events` rather than user.registrations, because
+        registrations carry no date and reach back over every event the user has
+        ever entered. `events` is already the list of events still to come.
+
+        The division/team is reported only when the user actually chose it: an
+        event with a single division did not ask, so naming it back is noise.
+    """
+    summary: list[tuple[Event, DivTeam | None, str | None]] = []
+
+    for event in events:
+        if not user.is_registered(event.scheduled_event_id):
+            continue
+
+        div_team_str: DivTeam | None = None
+        div_team_name: str | None = None
+
+        if not event.has_solo_division:
+            registration = next(
+                reg for reg in user.registrations
+                if reg["scheduled_event_id"] == event.scheduled_event_id)
+            if event.divisions:
+                div_team_str = DivTeam.DIVISION
+                div_team_name = next(
+                    (d.name for d in event.divisions if d.id == registration["div_team_id"]), None)
+            elif event.teams:
+                div_team_str = DivTeam.TEAM
+                div_team_name = next(
+                    (t.name for t in event.teams if t.id == registration["div_team_id"]), None)
+
+        summary.append((event, div_team_str, div_team_name))
+
+    # start_time should always be set, but a missing one must not take the whole
+    # exit screen down with a comparison against None: sort it last instead.
+    dated = [row for row in summary if row[0].start_time is not None]
+    undated = [row for row in summary if row[0].start_time is None]
+    return sorted(dated, key=lambda row: row[0].start_time) + undated

@@ -35,10 +35,9 @@ def _build_error_alert_message(
         if command_name:
             lines.append(f"command: `/{_truncate(command_name, 80)}`")
         lines.append(f"user: `{_truncate(str(interaction.user), 120)}` ({interaction.user.id})")
-        if interaction.guild_id is not None:
-            lines.append(f"guild_id: `{interaction.guild_id}`")
         if interaction.channel_id is not None:
-            lines.append(f"channel_id: `{interaction.channel_id}`")
+            channel_name = str(interaction.channel) if interaction.channel else "unknown"
+            lines.append(f"channel: `{_truncate(channel_name, 120)}` ({interaction.channel_id})")
 
     if details:
         for key, value in details.items():

@@ -1,13 +1,14 @@
 # Cog class for displaying scoreboard results using bot (/show command)
 
 import logging
-from datetime import timezone
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from fzdbot.error_alerts import send_error_alert
+from fzdbot.fzd_api import FzdApiError
 from fzdbot.formatters import (
     format_discord_timestamp,
     format_scoreboard_display_text,
@@ -15,9 +16,7 @@ from fzdbot.formatters import (
 )
 from fzdbot.fzd_db import (
     get_db_connection,  # connect_to_database
-    get_event_scoreboard,
     get_event_types,
-    get_user_id,
 )
 from fzdbot.settings import get_settings
 
@@ -48,9 +47,12 @@ class Scoreboard(commands.Cog):
         logger.debug("[showScoreboard] Invoked by %s with event_type=%s", interaction.user, event_type)
         try:
             await interaction.response.defer()
-            async with get_db_connection() as db:
-                db_user_id = await get_user_id(db, interaction.user.name)
-                eventinfo, eventscoreslist = await get_event_scoreboard(db, db_user_id, event_type=event_type)
+            try:
+                eventinfo = await self.bot.api.latest_event(event_type, datetime.now(timezone.utc))
+            except FzdApiError as error:
+                if error.status != 404:
+                    raise
+                eventinfo = None
 
             if not eventinfo:
                 if event_type:
@@ -65,8 +67,25 @@ class Scoreboard(commands.Cog):
                     )
                     logger.warning("[showScoreboard] Unknown issue encountered by %s", interaction.user)
             else:
-                eventdate = eventinfo["utc_start_dt"].replace(tzinfo=timezone.utc)
-                title = eventinfo["name"]
+                try:
+                    results = await self.bot.api.scoreboard(eventinfo["scheduled_event_id"], interaction.user.id)
+                except FzdApiError as error:
+                    if error.status != 404:
+                        raise
+                    results = {"division": None, "entries": []}
+
+                eventdate = datetime.fromisoformat(eventinfo["starts_at"]).astimezone(timezone.utc)
+                title = eventinfo["event"]
+                eventscoreslist = [
+                    {
+                        "player": entry["display_name"],
+                        "score": entry["points"],
+                        "team": entry["team"],
+                        "is_qualified": entry["qualified"],
+                        "division": results["division"],
+                    }
+                    for entry in results["entries"]
+                ]
                 if not eventscoreslist:
                     scoreboard = discord.Embed(
                         title=title, description=f"*Played on {format_discord_timestamp(eventdate)}*"

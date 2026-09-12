@@ -6,6 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from fzdbot.error_alerts import send_error_alert
+from fzdbot.fzd_api import FzdApi
 from fzdbot.fzd_db import init_db_pool
 from fzdbot.settings import configure_logging, get_settings
 
@@ -47,6 +48,8 @@ class FZDBot(commands.Bot):
 
     async def setup_hook(self):
         try:
+            settings = get_settings()
+            self.api = FzdApi(settings.fzd_api_base_url, settings.fzd_api_key)
             self.db_pool = await init_db_pool()
             await self.load_extension("fzdbot.cogs.show_scoreboard")
             await self.load_extension("fzdbot.cogs.scoring")
@@ -62,7 +65,6 @@ class FZDBot(commands.Bot):
             )
             raise
 
-        settings = get_settings()
         try:
             guild_id = discord.Object(id=settings.server_id)
             # Force sync so bot command changes will appear right away
@@ -76,6 +78,10 @@ class FZDBot(commands.Bot):
                 error=error,
                 details={"guild_id": settings.server_id},
             )
+
+    async def close(self) -> None:
+        await self.api.close()
+        await super().close()
 
     async def on_ready(self) -> None:
         logger.info("%s is now running", self.user)

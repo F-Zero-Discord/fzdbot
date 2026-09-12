@@ -3,8 +3,7 @@ from discord import ui
 from fzdbot.utils.event_class import UserStats
 from fzdbot.utils.view_utils import NextStep
 from fzdbot.utils.status_policies import user_event_status
-from fzdbot.views.common import GenericButton
-from fzdbot.fzd_db import get_db_connection
+from fzdbot.views.common import GenericButton, SessionView
 
 #####################################
 # Modal classes
@@ -234,10 +233,9 @@ class RaceProModal(ui.Modal):
 # LayoutView classes
 #################################
 
-class StatViewHistory99(ui.LayoutView):
+class StatViewHistory99(SessionView):
     def __init__(self, ggp_dict: dict, recent_dict: dict, user_stats: UserStats):
-        super().__init__(timeout=300)
-        self.next_step: NextStep = NextStep.NULL
+        super().__init__()
         self.user_stats: UserStats = user_stats
 
         intro_text = "The following questions will help us determine which Skill Class you should race in. Please go to Workshop → Records in-game, then find the appropriate information."
@@ -268,7 +266,7 @@ class StatViewHistory99(ui.LayoutView):
                                         button_label="Continue", 
                                         button_color=discord.ButtonStyle.green, 
                                         button_disabled=False, 
-                                        next_step=NextStep.NULL
+                                        next_step=NextStep.CONTINUE
                                           )
         self.back_button = GenericButton(parent_view=self, 
                                         selection_id=None, 
@@ -289,7 +287,7 @@ class StatViewHistory99(ui.LayoutView):
     #################################
 
     class GGPSelection(ui.Select):
-        def __init__(self, parent_view: ui.LayoutView, ggp_dict_list: list[dict]):
+        def __init__(self, parent_view: SessionView, ggp_dict_list: list[dict]):
             self.parent_view = parent_view
 
             options = []
@@ -314,7 +312,7 @@ class StatViewHistory99(ui.LayoutView):
 
 
     class RecentSelection(ui.Select):
-        def __init__(self, parent_view: ui.LayoutView, recent_dict_list: list[dict]):
+        def __init__(self, parent_view: SessionView, recent_dict_list: list[dict]):
             self.parent_view = parent_view
 
             options = []
@@ -339,7 +337,7 @@ class StatViewHistory99(ui.LayoutView):
 
 
     class MachineSelection(ui.Select):
-        def __init__(self, parent_view: ui.LayoutView, machine_dict_list: list[dict]):
+        def __init__(self, parent_view: SessionView, machine_dict_list: list[dict]):
             self.parent_view = parent_view
 
             options = []
@@ -367,7 +365,7 @@ class StatViewHistory99(ui.LayoutView):
     #################################
 
     class Button99(ui.Button):
-        def __init__(self, parent_view: ui.LayoutView):
+        def __init__(self, parent_view: SessionView):
             self.parent_view = parent_view
             super().__init__(label="Add", 
                             style=discord.ButtonStyle.green,
@@ -379,7 +377,7 @@ class StatViewHistory99(ui.LayoutView):
 
 
     class ButtonGP(ui.Button):
-        def __init__(self, parent_view: ui.LayoutView):
+        def __init__(self, parent_view: SessionView):
             self.parent_view = parent_view
             super().__init__(label="Add", 
                             style=discord.ButtonStyle.green,
@@ -391,7 +389,7 @@ class StatViewHistory99(ui.LayoutView):
 
 
     class ButtonPro(ui.Button):
-        def __init__(self, parent_view: ui.LayoutView):
+        def __init__(self, parent_view: SessionView):
             self.parent_view = parent_view
             super().__init__(label="Add", 
                             style=discord.ButtonStyle.green,
@@ -458,10 +456,9 @@ class StatViewHistory99(ui.LayoutView):
         self.container_middle.add_item(self.gp_stats_section)
 
 
-class StatViewHistoryClassic(ui.LayoutView):
+class StatViewHistoryClassic(SessionView):
     def __init__(self, user_stats: UserStats):
-        super().__init__(timeout=300)
-        self.next_step: NextStep = NextStep.NULL
+        super().__init__()
         self.user_stats: UserStats = user_stats
 
         intro_text = "The following questions will help us determine which Skill Class you should race in. Please go to Workshop → Records in-game, then find the appropriate information."
@@ -482,7 +479,7 @@ class StatViewHistoryClassic(ui.LayoutView):
                                         button_label="Continue", 
                                         button_color=discord.ButtonStyle.green, 
                                         button_disabled=False, 
-                                        next_step=NextStep.NULL
+                                        next_step=NextStep.CONTINUE
                                           )
         self.back_button = GenericButton(parent_view=self, 
                                         selection_id=None, 
@@ -503,7 +500,7 @@ class StatViewHistoryClassic(ui.LayoutView):
     #################################
 
     class ButtonClassic(ui.Button):
-        def __init__(self, parent_view: ui.LayoutView):
+        def __init__(self, parent_view: SessionView):
             self.parent_view = parent_view
             super().__init__(label="Add", 
                             style=discord.ButtonStyle.green,
@@ -540,13 +537,12 @@ class StatViewHistoryClassic(ui.LayoutView):
         self.container_middle.add_item(self.classic_stats_section)
 
 
-class BasicStatsView(ui.LayoutView):
+class BasicStatsView(SessionView):
     def __init__(self, recent_dict: list[dict],
                  self_eval_dict: list[dict],
                  user_stats: UserStats, 
                  timeout = 180):
         super().__init__(timeout=timeout)
-        self.next_step: NextStep = NextStep.NULL
         self.user_stats: UserStats = user_stats
 
         intro_text = "The following questions will help us determine which Skill Class you should race in.\nThe FZD staff will use your records and results from previous events, including non-FZD events.\n_Note: if this is your first event, the FZD staff might contact you to get more information about your in-game records._"
@@ -572,7 +568,7 @@ class BasicStatsView(ui.LayoutView):
                                         button_label="Continue", 
                                         button_color=discord.ButtonStyle.green, 
                                         button_disabled=True, 
-                                        next_step=NextStep.NULL
+                                        next_step=NextStep.CONTINUE
                                             )
         self.back_button = GenericButton(parent_view=self, 
                                         selection_id=None, 
@@ -592,12 +588,12 @@ class BasicStatsView(ui.LayoutView):
     #################################
 
     class RecentSelection(ui.Select):
-        def __init__(self, parent_view: ui.LayoutView, recent_dict_list: list[dict]):
+        def __init__(self, parent_view: SessionView, recent_dict_list: list[dict]):
             self.parent_view = parent_view
 
             options = []
             for recent_dict in recent_dict_list:
-                options.append(discord.SelectOption(label=recent_dict["most_recent"], 
+                options.append(discord.SelectOption(label=recent_dict["text"], 
                                         description=None,
                                         default=(self.parent_view.user_stats.most_recent_id == recent_dict["id"]),
                                         value=recent_dict["id"]
@@ -617,12 +613,12 @@ class BasicStatsView(ui.LayoutView):
 
 
     class SelfEvalSelection(ui.Select):
-            def __init__(self, parent_view: ui.LayoutView, self_eval_dict_list: list[dict]):
+            def __init__(self, parent_view: SessionView, self_eval_dict_list: list[dict]):
                 self.parent_view = parent_view
     
                 options = []
                 for self_eval_dict in self_eval_dict_list:
-                    options.append(discord.SelectOption(label=self_eval_dict["self_eval"], 
+                    options.append(discord.SelectOption(label=self_eval_dict["text"], 
                                             description=None,
                                             default=(self.parent_view.user_stats.self_eval_id == self_eval_dict["id"]),
                                             value=self_eval_dict["id"]
