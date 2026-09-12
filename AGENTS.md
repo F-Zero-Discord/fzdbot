@@ -28,6 +28,7 @@ Rules of thumb:
 - Prefer repo-local executables under `./.venv/bin/`.
 - Run lint fixes and import sorting with `./.venv/bin/ruff check . --fix`.
 - Run formatting with `./.venv/bin/ruff format .`.
+- Run type checking with `./.venv/bin/pyright`.
 
 ## Tests
 
