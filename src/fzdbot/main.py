@@ -55,6 +55,7 @@ class FZDBot(commands.Bot):
             await self.load_extension("fzdbot.cogs.scoring")
             await self.load_extension("fzdbot.cogs.events_users_handling")
             await self.load_extension("fzdbot.cogs.event_register")
+            await self.load_extension("fzdbot.cogs.ggp8_rivals")
             logger.info("Loaded extensions")
         except Exception as error:
             logger.exception("Failed to load extensions")

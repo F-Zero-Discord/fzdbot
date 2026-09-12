@@ -17,9 +17,15 @@ def _instant(moment: datetime) -> str:
 
 
 class FzdApiError(Exception):
-    def __init__(self, message: str, status: int | None = None) -> None:
+    """`status` is the HTTP status, or None when the API was never reached.
+    `detail` is the API's own sentence for a 4xx, when it gave one — the
+    refusal a command can show a user as it is, where `str(error)` also says
+    which service refused."""
+
+    def __init__(self, message: str, status: int | None = None, detail: str | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.detail = detail
 
 
 class FzdApi:
@@ -129,9 +135,7 @@ class FzdApi:
             },
         )
 
-    async def withdraw(
-        self, discord_user_id: int, scheduled_event_id: int, now: datetime
-    ) -> dict[str, Any]:
+    async def withdraw(self, discord_user_id: int, scheduled_event_id: int, now: datetime) -> dict[str, Any]:
         """Leave whichever group of this event the player holds. Idempotent."""
         return await self._request(
             "DELETE",
@@ -167,6 +171,44 @@ class FzdApi:
             },
         )
 
+    async def ggp8_events(self) -> list[dict[str, Any]]:
+        """The scheduled events that are GGP8's, earliest first. Which ones is
+        the API's configuration; nothing here holds an event id."""
+        return await self._request("GET", "/v1/ggp8/events")
+
+    async def ggp8_registrations(self) -> list[dict[str, Any]]:
+        """Everybody currently registered for a GGP8 event, one row per player
+        per event, each with their division or team and their Discord id."""
+        return await self._request("GET", "/v1/ggp8/registrations")
+
+    async def rivals(self, discord_user_id: int, now: datetime) -> dict[str, Any]:
+        """Every event running a Rival Challenge with this player's standing in
+        it — registered, locked, their pick — and who has picked them."""
+        return await self._request("GET", f"/v1/players/{discord_user_id}/rivals?now={_instant(now)}")
+
+    async def choose_rival(
+        self, discord_user_id: int, scheduled_event_id: int, rival_discord_user_id: int, now: datetime
+    ) -> dict[str, Any]:
+        """Name a rival for one event, replacing an earlier pick. The API holds
+        the rules: 404 for an event with no Rival Challenge or a rival not in the
+        caller's division, 409 when the caller is not registered or the event has
+        started, 422 for naming yourself. Answers the refreshed event."""
+        return await self._request(
+            "PUT",
+            f"/v1/players/{discord_user_id}/rivals/{scheduled_event_id}?now={_instant(now)}",
+            json={"rival_discord_user_id": str(rival_discord_user_id)},
+        )
+
+    async def withdraw_rival(
+        self, discord_user_id: int, scheduled_event_id: int, now: datetime
+    ) -> dict[str, Any]:
+        """Clear the caller's rival for one event. Idempotent; 409 once the event
+        has started."""
+        return await self._request(
+            "DELETE",
+            f"/v1/players/{discord_user_id}/rivals/{scheduled_event_id}?now={_instant(now)}",
+        )
+
     async def _request(self, method: str, path: str, json: dict[str, Any] | None = None) -> Any:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=self._timeout)
@@ -178,7 +220,9 @@ class FzdApi:
             ) as response:
                 body = await self._read_body(response)
                 if response.status >= 400:
-                    raise FzdApiError(self._message_for(response.status, body), response.status)
+                    raise FzdApiError(
+                        self._message_for(response.status, body), response.status, self._detail_of(body)
+                    )
                 return body
         except asyncio.TimeoutError as error:
             logger.error("[API] %s %s timed out", method, url)
@@ -193,6 +237,11 @@ class FzdApi:
             return await response.json(content_type=None)
         except (ValueError, aiohttp.ContentTypeError):
             return {}
+
+    @staticmethod
+    def _detail_of(body: Any) -> str | None:
+        detail = body.get("detail") if isinstance(body, dict) else None
+        return detail if isinstance(detail, str) else None
 
     @staticmethod
     def _message_for(status: int, body: Any) -> str:

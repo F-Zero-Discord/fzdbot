@@ -36,7 +36,7 @@ There are currently no tests, and you will not make any, unless explicitly make 
 
 ## Where the data comes from
 
-**Nine of the ten commands read and write through the FZD API, not the database.**
+**Twelve of the thirteen commands read and write through the FZD API, not the database.**
 `fzd_api.py` is the whole client: one `aiohttp` session, an `X-API-Key` header,
 and `FzdApiError` carrying the HTTP status. `bot.api` holds it, so a cog reaches
 it as `self.bot.api` and a registration session as `interaction.client.api`.
@@ -45,6 +45,19 @@ it as `self.bot.api` and a registration session as `interaction.client.api`.
 fallback to the database: a missing key stops the bot rather than letting nine
 commands fail one at a time. One key per environment, minted by the API's
 `api-key-new`.
+
+**`/ggp8_rivals`, `/ggp8_rivals_delete` and `/ggp8_rivals_show` hold nothing.** `cogs/ggp8_rivals.py`
+offers the events `GET /v1/ggp8/events` lists, narrowed to the ones the caller's
+`GET /v1/players/{id}/rivals` overview says run a Rival Challenge, so no event id
+or name is written here to exclude Yahtzee. The player picker is
+`GET /v1/ggp8/registrations` filtered to the chosen event: every division, with
+a player outside the caller's own marked. The pick is one `PUT`, the removal one
+`DELETE`, and the rules — both registered, not yourself, not after the start —
+are the API's, whose refusal is what the user reads. The API also tells the
+rival, later, through a webhook; the bot sends no message of its own.
+`/ggp8_rivals_show` is the same overview read once more, rendered as one
+ephemeral embed field per event: the caller's pick and everyone who picked
+them, for every event they are registered for or have been picked in.
 
 **A player is named by their Discord id.** Every API path takes the snowflake,
 and `users.id` appears nowhere in this repo — nothing here resolves an account,
