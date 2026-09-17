@@ -1,16 +1,16 @@
 from typing import Literal, Self
 from datetime import datetime, timezone
 import discord
-from fzdbot.utils.view_utils import DivTeam, discord_timestamp
+from fzdbot.utils.view_utils import discord_timestamp
 
 
 def instant_to_naive_utc(value: str | None) -> datetime | None:
-    """ An API instant as the naive UTC datetime this module compares against.
+    """An API instant as the naive UTC datetime this module compares against.
 
-        `datetime.now()` and `datetime.timestamp()` both read a naive value as
-        local time, and every datetime here is compared or formatted by one of
-        them, so the offset is dropped rather than carried. Carrying it would
-        make `reg_open > datetime.now()` raise instead of answer.
+    `datetime.now()` and `datetime.timestamp()` both read a naive value as
+    local time, and every datetime here is compared or formatted by one of
+    them, so the offset is dropped rather than carried. Carrying it would
+    make `reg_open > datetime.now()` raise instead of answer.
     """
     if value is None:
         return None
@@ -19,11 +19,11 @@ def instant_to_naive_utc(value: str | None) -> datetime | None:
 
 
 def option_id(options: list[dict], text: str | None) -> int | None:
-    """ The id of the option carrying `text`, or None.
+    """The id of the option carrying `text`, or None.
 
-        The API answers a stored questionnaire answer as text and offers the
-        options it came from; the dropdowns work in ids. An answer whose text is
-        no longer in its list gives None, and the screen asks again.
+    The API answers a stored questionnaire answer as text and offers the
+    options it came from; the dropdowns work in ids. An answer whose text is
+    no longer in its list gives None, and the screen asks again.
     """
     if text is None:
         return None
@@ -31,15 +31,15 @@ def option_id(options: list[dict], text: str | None) -> int | None:
 
 
 def is_full(capacity: int | None, num_registered: int) -> bool:
-    """ Whether a division or team has no room left.
+    """Whether a division or team has no room left.
 
-        Capacity is nullable, and a NULL one is uncapped: there is no number
-        to reach, so it is never full.
+    Capacity is nullable, and a NULL one is uncapped: there is no number
+    to reach, so it is never full.
     """
     return capacity is not None and num_registered >= capacity
 
 
-class Event():
+class Event:
     def __init__(self):
         self.event_id: int | None = None
         self.scheduled_event_id: int | None = None
@@ -64,7 +64,7 @@ class Event():
             return None
 
     # reg_open and reg_close are optional values. if not present, assume event open,
-    #   as users only presented with events that are in the future. 
+    #   as users only presented with events that are in the future.
     @property
     def reg_period_not_started(self) -> bool:
         if not self.reg_open:
@@ -110,14 +110,13 @@ class Event():
     @property
     def has_solo_division(self) -> bool:
         if self.divisions and self.teams:
-            raise ValueError(f"An event can have teams or divisions, but not both.")
+            raise ValueError("An event can have teams or divisions, but not both.")
         if not self.divisions:
             return False
         elif len(self.divisions) == 1:
             return True
         else:
             return False
-
 
     def __repr__(self) -> str:
         return f"""Event(event_id='{self.event_id}'\n\
@@ -136,7 +135,7 @@ class Event():
                 reg_close='{self.reg_close}'\n\
                 )"""
 
-    # Make this a __format__ dunder method    
+    # Make this a __format__ dunder method
     def __format__(self, format_spec: str) -> Literal["detail"] | None:
         """Provides a detailed description of an event."""
         match format_spec:
@@ -146,22 +145,24 @@ class Event():
                 else:
                     event_string = ""
                     event_string += f"### {self.event_name}\n"
-                    event_string += f"**Description:** {self.description if self.description is not None else "None"}\n"
+                    event_string += (
+                        f"**Description:** {self.description if self.description is not None else 'None'}\n"
+                    )
                     event_string += f"**Mode:** {self.mode}   **Scoring:** {self.scoring}\n"
                     event_string += f"**Requires users to enter machine when scoring?:** {'Yes' if self.machine_required is self.machine_required else 'No'}\n"
                     event_string += f"**Event Start:** {discord_timestamp(self.start_time, 'long')}\n"
                     event_string += f"**Event End:** {discord_timestamp(self.end_time, 'long')}\n"
                     if self.teams:
-                        event_string += f"**Teams:**\n"
+                        event_string += "**Teams:**\n"
                         for team in self.teams:
                             event_string += f"{team:detail}"
                     if self.divisions:
                         # Assume that if only division has same name as event that it is silent division
                         if (len(self.divisions) > 1) and (self.divisions[0].name != self.event_name):
-                            event_string += f"**Divisions:**\n"
+                            event_string += "**Divisions:**\n"
                             for division in self.divisions:
                                 event_string += f"{division:detail}"
-                    event_string += f"**Registration Window:**\n"
+                    event_string += "**Registration Window:**\n"
                     event_string += f"\t**Registration Opens:** {discord_timestamp(self.reg_open, 'long')}\n"
                     event_string += f"\t**Registration Closes:** {discord_timestamp(self.reg_close, 'long')}\n"
 
@@ -169,26 +170,15 @@ class Event():
 
             case _:
                 raise ValueError("Unknown format specifier...")
-                
-
-
-
-
-
-
-
-
-
-
 
     @staticmethod
     def from_api(event: dict) -> "Event":
-        """ One event object from `GET /v1/players/{id}/registrations`.
+        """One event object from `GET /v1/players/{id}/registrations`.
 
-            The whole screen in one payload: the event, its groups, and each
-            group's capacity and headcount. An event runs on divisions or on
-            teams, so the other list stays empty and `div_or_team` reads which
-            from that.
+        The whole screen in one payload: the event, its groups, and each
+        group's capacity and headcount. An event runs on divisions or on
+        teams, so the other list stays empty and `div_or_team` reads which
+        from that.
         """
         self = Event()
         self.scheduled_event_id = event["scheduled_event_id"]
@@ -203,8 +193,7 @@ class Event():
         self.reg_close = instant_to_naive_utc(event["registration_closes_at"])
 
         groups = [
-            _group_from_api(group, event["group_kind"], event["scheduled_event_id"])
-            for group in event["groups"]
+            _group_from_api(group, event["group_kind"], event["scheduled_event_id"]) for group in event["groups"]
         ]
         if event["group_kind"] == "team":
             self.teams, self.divisions = groups, []
@@ -212,24 +201,21 @@ class Event():
             self.divisions, self.teams = groups, []
         return self
 
-
-
-
     def div_or_team(self) -> str:
-        """ Returns string "division" or "team" depending on the whether the event has 
-            divisions or teams.
+        """Returns string "division" or "team" depending on the whether the event has
+        divisions or teams.
         """
         if self.divisions:
             div_team_str = "division"
         elif self.teams:
             div_team_str = "team"
         else:
-            raise ValueError(f"Event must have either divisions or teams, not neither.")
+            raise ValueError("Event must have either divisions or teams, not neither.")
 
         return div_team_str
 
 
-class Division():
+class Division:
     def __init__(self):
         self.id: int | None = None
         self.scheduled_event_id = int | None
@@ -239,11 +225,9 @@ class Division():
         self.num_registered: int | None = None
         self.emote: str | None = None
 
-
     @property
     def at_capacity(self) -> bool:
         return is_full(self.capacity, self.num_registered)
-        
 
     def __repr__(self) -> str:
         return f"""Division(id='{self.id}'\n\
@@ -253,8 +237,7 @@ class Division():
                 capacity='{self.capacity}'\n\
                 emote='{self.emote}'\n\
                 )"""
-                
-    
+
     def __format__(self, format_spec: str) -> Literal["detail"] | None:
         """Provides a detailed description of a division."""
         match format_spec:
@@ -270,11 +253,9 @@ class Division():
                     return division_string
             case _:
                 raise ValueError("Unknown format specifier...")
-            
-        
 
 
-class Team():
+class Team:
     def __init__(self):
         self.id: int | None = None
         self.scheduled_event_id = int | None
@@ -284,11 +265,9 @@ class Team():
         self.num_registered: int | None = None
         self.emote: str | None = None
 
-
     @property
     def at_capacity(self) -> bool:
         return is_full(self.capacity, self.num_registered)
-    
 
     def __repr__(self) -> str:
         return f"""Team(id='{self.id}'\n\
@@ -298,7 +277,6 @@ class Team():
                 capacity='{self.capacity}'\n\
                 emote='{self.emote}'\n\
                 )"""
-
 
     def __format__(self, format_spec: str) -> Literal["detail"] | None:
         """Provides a detailed description of a team."""
@@ -315,20 +293,10 @@ class Team():
                     return team_string
             case _:
                 raise ValueError("Unknown format specifier...")
-            
-
-
-
-
-
-
-
-    
-
 
 
 def _group_from_api(group: dict, kind: str | None, scheduled_event_id: int) -> "Division | Team":
-    """ One division or team, with the headcount the API counted."""
+    """One division or team, with the headcount the API counted."""
     div_team = Team() if kind == "team" else Division()
     div_team.id = group["group_id"]
     div_team.scheduled_event_id = scheduled_event_id
@@ -340,7 +308,7 @@ def _group_from_api(group: dict, kind: str | None, scheduled_event_id: int) -> "
     return div_team
 
 
-class UserRegistrations():
+class UserRegistrations:
     def __init__(self, interaction: discord.Interaction):
         self.discord_user_id: str = interaction.user.name
         self.registrations: list[dict] | None = None
@@ -352,25 +320,24 @@ class UserRegistrations():
         """
 
     def __format__(self, format_spec: str) -> Literal["detail"] | None:
-            """Provides a detailed description of an event."""
-            match format_spec:
-                case "detail":
-                    if not self:
-                        return None
+        """Provides a detailed description of an event."""
+        match format_spec:
+            case "detail":
+                if not self:
+                    return None
+                else:
+                    out_string = "UserRegistrations(\n"
+                    out_string += f"\tdiscord_user_id: {self.discord_user_id}\n"
+                    out_string += "\tregistrations:\n"
+                    if not self.registrations:
+                        out_string += "\t\tNone\n"
                     else:
-                        out_string = "UserRegistrations(\n"
-                        out_string += f"\tdiscord_user_id: {self.discord_user_id}\n"
-                        out_string += "\tregistrations:\n"
-                        if not self.registrations:
-                            out_string += "\t\tNone\n"
-                        else:
-                            for i, registration in enumerate(self.registrations):
-                                out_string += f"\t\tRegistration {i}\n"
-                                out_string += f"\t\t\tscheduled_event_id: {registration['scheduled_event_id']}\n"
-                                out_string += f"\t\t\ttype: {registration['type']}\n"
-                                out_string += f"\t\t\tdiv_team_id: {registration['div_team_id']}\n"
-                        return out_string
-    
+                        for i, registration in enumerate(self.registrations):
+                            out_string += f"\t\tRegistration {i}\n"
+                            out_string += f"\t\t\tscheduled_event_id: {registration['scheduled_event_id']}\n"
+                            out_string += f"\t\t\ttype: {registration['type']}\n"
+                            out_string += f"\t\t\tdiv_team_id: {registration['div_team_id']}\n"
+                    return out_string
 
     def is_registered(self, scheduled_event_id):
         if self.registrations:
@@ -380,16 +347,15 @@ class UserRegistrations():
                 return False
         else:
             return False
-        
 
     @staticmethod
     def from_api(interaction: discord.Interaction, events: list[dict]) -> "UserRegistrations":
-        """ Where this player stands, read off the same payload the events came
-            from.
+        """Where this player stands, read off the same payload the events came
+        from.
 
-            The API answers one event object per open event, each carrying this
-            player's registration or null, so there is no second call and no
-            user id to carry: the snowflake in the path is the whole identity.
+        The API answers one event object per open event, each carrying this
+        player's registration or null, so there is no second call and no
+        user id to carry: the snowflake in the path is the whole identity.
         """
         self = UserRegistrations(interaction)
         self.registrations = [
@@ -404,26 +370,26 @@ class UserRegistrations():
         return self
 
 
-class UserStats():
+class UserStats:
     def __init__(self):
         self.scheduled_event_id: int | None = None
-        self.self_eval_id: int | None = None # enum
-        self.most_recent_id: int | None = None # enum
-
+        self.self_eval_id: int | None = None  # enum
+        self.most_recent_id: int | None = None  # enum
 
     @staticmethod
-    async def load_from_api(api, discord_user_id: int,
-                            scheduled_event_id: int) -> tuple[Self, list[dict], list[dict]]:
-        """ This player's answers for one event, and the two lists a form offers.
+    async def load_from_api(
+        api, discord_user_id: int, scheduled_event_id: int
+    ) -> tuple[Self, list[dict], list[dict]]:
+        """This player's answers for one event, and the two lists a form offers.
 
-            An answer the player gave for some other event arrives filled in
-            here, exactly as the database read it filled it in, and counts as
-            complete — which is what decides whether the screen appears at all.
-            `answered_for_this_event` is what tells the two apart and is
-            deliberately not consulted.
+        An answer the player gave for some other event arrives filled in
+        here, exactly as the database read it filled it in, and counts as
+        complete — which is what decides whether the screen appears at all.
+        `answered_for_this_event` is what tells the two apart and is
+        deliberately not consulted.
 
-            Returns the stats and the two option lists, because the API answers
-            all three in one call and the screen needs all three.
+        Returns the stats and the two option lists, because the API answers
+        all three in one call and the screen needs all three.
         """
         body = await api.evaluations(discord_user_id, scheduled_event_id)
         self_eval_options = body["options"]["self_evaluation"]
@@ -435,12 +401,10 @@ class UserStats():
         self.most_recent_id = option_id(recent_options, body["most_recent_event"])
         return self, recent_options, self_eval_options
 
-
-    async def save_to_api(self, api, discord_user_id: int,
-                          discord_user_name: str, tag: str) -> bool:
-        """ Store both answers against this event. False when there was nothing
-            complete to store: the write takes both answers, and the screen's
-            Continue button is disabled until both are chosen.
+    async def save_to_api(self, api, discord_user_id: int, discord_user_name: str, tag: str) -> bool:
+        """Store both answers against this event. False when there was nothing
+        complete to store: the write takes both answers, and the screen's
+        Continue button is disabled until both are chosen.
         """
         if not (self.self_eval_id and self.most_recent_id):
             return False
@@ -456,4 +420,3 @@ class UserStats():
 
 
 # Dummy event for testing
-from fzdbot.utils.view_utils import time_string_to_datetime

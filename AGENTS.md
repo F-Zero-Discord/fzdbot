@@ -36,7 +36,7 @@ There are currently no tests, and you will not make any, unless explicitly make 
 
 ## Where the data comes from
 
-**Twelve of the thirteen commands read and write through the FZD API, not the database.**
+**Ten of the twelve commands read and write through the FZD API, not the database.**
 `fzd_api.py` is the whole client: one `aiohttp` session, an `X-API-Key` header,
 and `FzdApiError` carrying the HTTP status. `bot.api` holds it, so a cog reaches
 it as `self.bot.api` and a registration session as `interaction.client.api`.
@@ -58,6 +58,33 @@ rival, later, through a webhook; the bot sends no message of its own.
 `/ggp8_rivals_show` is the same overview read once more, rendered as one
 ephemeral embed field per event: the caller's pick and everyone who picked
 them, for every event they are registered for or have been picked in.
+
+**`/submit_score`, `/submit_time` and `/delete_submission` set a result on a
+slot.** `cogs/submissions.py` offers every slot of every event
+`GET /v1/events/active` lists, read from `GET /v1/events/{id}/schedule`, the
+slot raced most recently first; the choice carries the event id and the slot id
+and nothing else. The write is one `PUT` of a score, a time in centiseconds, or
+`dnf`, and the removal one `DELETE`. The bot parses the time (`m:ss.cc`, any
+non-digit between the parts) and the score, and nothing more: which events are
+open, whether the slot takes a score or a time, the bounds, and whether a
+machine must be named are the API's rules, and its refusal is what the user
+reads. A second submission to a slot replaces the first; there is no edit.
+
+**`/setup_scoreboard` and `/fzd_show` post a board from two reads.**
+`GET /v1/events/{id}` says what the board is — `group_kind`, the groups, the
+slots with their multipliers, the mulligans and the time cap — and
+`GET /v1/events/{id}/scoreboard` says what is on it, the same for any caller,
+with `rank`, `total`, `value`, `counted` and `open` already decided.
+`scoreboards.render_boards` turns the pair into lines and decides nothing but
+layout: one embed per division when a division event is read whole, a ranked
+team block above the individuals on a team event, `~~struck~~` on a result a
+mulligan dropped, `×N` on a slot heading with a multiplier, times as `m:ss.cc`
+with the loss to the slot's leader as `+s.cc`, `DNF` and `—` (not entered)
+told apart, and an unopened time slot left blank. Nothing here sums, ranks or
+names an event. `/setup_scoreboard` offers GGP8's events and whatever is
+running, and a chosen event's groups; the post is a snapshot and does not
+update, which its description says. `/fzd_show` takes the latest event of a
+type and posts it whole.
 
 **A player is named by their Discord id.** Every API path takes the snowflake,
 and `users.id` appears nowhere in this repo — nothing here resolves an account,

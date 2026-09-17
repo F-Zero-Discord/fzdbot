@@ -27,6 +27,13 @@ class FzdApiError(Exception):
         self.status = status
         self.detail = detail
 
+    def refusal(self) -> str:
+        """What to tell the user. A 4xx carries the API's own sentence about the
+        rule that refused the request; anything else is the client's description."""
+        if self.detail and self.status in (404, 409, 422):
+            return self.detail
+        return str(self)
+
 
 class FzdApi:
     def __init__(self, base_url: str, api_key: str, timeout_seconds: float = 10.0) -> None:
@@ -47,43 +54,79 @@ class FzdApi:
             json={"discord_user_name": discord_user_name, "tag": tag},
         )
 
-    async def add_score(
+    async def schedule(self, scheduled_event_id: int) -> list[dict[str, Any]]:
+        """The event's slots in schedule order, each with its lineup, mode and
+        start, and the vote winner where one is known. Empty when none are
+        entered, which is an event that cannot take a result."""
+        return await self._request("GET", f"/v1/events/{scheduled_event_id}/schedule")
+
+    async def set_score(
         self,
         discord_user_id: int,
         discord_user_name: str,
-        tag: str,
         scheduled_event_id: int,
-        score: int,
+        slot_id: int,
+        score: int | None,
         machine_id: int | None,
+        now: datetime,
     ) -> dict[str, Any]:
+        """Set, or replace, the player's points result on a slot. `score=None`
+        submits a DNF: a row that holds no value. The API refuses a slot off
+        the event, an event scored by time or not running at `now`, a negative
+        score, and a missing machine where the event records one."""
         return await self._request(
-            "POST",
-            f"/v1/players/{discord_user_id}/scores",
-            json={
-                "scheduled_event_id": scheduled_event_id,
-                "discord_user_name": discord_user_name,
-                "tag": tag,
-                "score": score,
-                "machine_id": machine_id,
-            },
+            "PUT",
+            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/score?now={_instant(now)}",
+            json=self._submission(discord_user_id, discord_user_name, machine_id, score=score),
         )
 
-    async def list_scores(self, discord_user_id: int, scheduled_event_id: int) -> list[dict[str, Any]]:
-        body = await self._request(
-            "GET",
-            f"/v1/players/{discord_user_id}/scores?scheduled_event_id={scheduled_event_id}",
-        )
-        return body["scores"]
-
-    async def edit_score(self, discord_user_id: int, score_id: int, points: int) -> dict[str, Any]:
+    async def set_time(
+        self,
+        discord_user_id: int,
+        discord_user_name: str,
+        scheduled_event_id: int,
+        slot_id: int,
+        time_cs: int | None,
+        machine_id: int | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Set, or replace, the player's time on a slot, in centiseconds as
+        entered. `time_cs=None` submits a DNF. Refusals as for `set_score`,
+        with the scoring method read the other way round."""
         return await self._request(
-            "PATCH",
-            f"/v1/players/{discord_user_id}/scores/{score_id}",
-            json={"points": points},
+            "PUT",
+            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/time?now={_instant(now)}",
+            json=self._submission(discord_user_id, discord_user_name, machine_id, time_cs=time_cs),
         )
 
-    async def delete_score(self, discord_user_id: int, score_id: int) -> None:
-        await self._request("DELETE", f"/v1/players/{discord_user_id}/scores/{score_id}")
+    async def delete_result(
+        self, discord_user_id: int, scheduled_event_id: int, slot_id: int, now: datetime
+    ) -> None:
+        """Return the slot to nothing submitted for the player. 404 when there
+        was nothing, 409 once the event is not running at `now`."""
+        await self._request(
+            "DELETE",
+            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/result"
+            f"?discord_user_id={discord_user_id}&now={_instant(now)}",
+        )
+
+    @staticmethod
+    def _submission(
+        discord_user_id: int, discord_user_name: str, machine_id: int | None, **value: int | None
+    ) -> dict[str, Any]:
+        """A result body: the player, the machine, and exactly one of the value
+        or `dnf`. The API refuses a body carrying both or neither."""
+        body: dict[str, Any] = {
+            "discord_user_id": str(discord_user_id),
+            "discord_user_name": discord_user_name,
+            "machine_id": machine_id,
+        }
+        ((field, amount),) = value.items()
+        if amount is None:
+            body["dnf"] = True
+        else:
+            body[field] = amount
+        return body
 
     async def machines(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/v1/machines")
@@ -91,11 +134,34 @@ class FzdApi:
     async def active_events(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/v1/events/active")
 
-    async def scoreboard(self, scheduled_event_id: int, discord_user_id: int) -> dict[str, Any]:
-        return await self._request(
-            "GET",
-            f"/v1/events/{scheduled_event_id}/scoreboard?discord_user_id={discord_user_id}",
-        )
+    async def event_detail(self, scheduled_event_id: int) -> dict[str, Any]:
+        """The event with what a board needs: `group_kind` (`division`, `team`
+        or None), its `groups`, its `slots` with their multipliers, and
+        `scoring` (mulligans and the time cap). 404 for an unknown or
+        cancelled event."""
+        return await self._request("GET", f"/v1/events/{scheduled_event_id}")
+
+    async def scoreboard(
+        self, scheduled_event_id: int, *, division_id: int | None = None, team_id: int | None = None
+    ) -> dict[str, Any]:
+        """The standings, the same for any caller. Unfiltered, a division
+        event answers every division in group order, each ranked within
+        itself; one of `division_id` or `team_id` narrows to that group, and
+        the API refuses the kind the event does not have."""
+        path = f"/v1/events/{scheduled_event_id}/scoreboard"
+        if division_id is not None:
+            path += f"?division_id={division_id}"
+        elif team_id is not None:
+            path += f"?team_id={team_id}"
+        return await self._request("GET", path)
+
+    async def event_types(self, recurring: bool | None = None) -> list[dict[str, Any]]:
+        """Every event definition, or only the weeklies (`True`) or the
+        one-offs (`False`)."""
+        path = "/v1/event-types"
+        if recurring is not None:
+            path += f"?recurring={'true' if recurring else 'false'}"
+        return await self._request("GET", path)
 
     async def latest_event(self, event_type: str | None, now: datetime) -> dict[str, Any]:
         now_utc = _instant(now)

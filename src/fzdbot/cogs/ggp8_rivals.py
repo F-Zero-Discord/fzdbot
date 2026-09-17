@@ -72,14 +72,6 @@ def _event_field(event: dict[str, Any], challengers: list[dict[str, Any]]) -> tu
     return _event_label(event), f"{when}\n\n🎯 **Your rival**\n{rival}\n\n⚔️ **Picked you**\n{picked_you}"
 
 
-def _refusal(error: FzdApiError) -> str:
-    """What to tell the user. A 4xx carries the API's own sentence about the
-    rule that refused the pick; anything else is the client's description."""
-    if error.detail and error.status in (404, 409, 422):
-        return error.detail
-    return str(error)
-
-
 class Ggp8Rivals(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -158,7 +150,7 @@ class Ggp8Rivals(commands.Cog):
                 interaction.user.id, int(event), int(user), datetime.now(timezone.utc)
             )
         except FzdApiError as error:
-            await interaction.followup.send(f"❌ {_refusal(error)}", ephemeral=True)
+            await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
             return
 
         rival = result["rival"]["player"]
@@ -182,7 +174,7 @@ class Ggp8Rivals(commands.Cog):
                 interaction.user.id, int(event), datetime.now(timezone.utc)
             )
         except FzdApiError as error:
-            await interaction.followup.send(f"❌ {_refusal(error)}", ephemeral=True)
+            await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
             return
 
         await interaction.followup.send(

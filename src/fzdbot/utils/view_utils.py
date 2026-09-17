@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from enum import StrEnum
 
+
 class NextStep(StrEnum):
     LOADING = "loading"
     LEAVE = "leave"
@@ -41,7 +42,7 @@ class DivTeam(StrEnum):
     NEITHER = "neither"
 
 
-def time_string_to_datetime(time_string: str, fmt='%Y-%m-%d %H:%M') -> datetime | None:
+def time_string_to_datetime(time_string: str, fmt="%Y-%m-%d %H:%M") -> datetime | None:
     """Parse a date-time string with the specified format."""
     try:
         return datetime.strptime(time_string, fmt).replace(tzinfo=timezone.utc)
@@ -66,23 +67,23 @@ def discord_timestamp(dt: datetime, format_type: str = "short") -> str | None:
         return f"<t:{unix_timestamp}:{format_type}>"
     else:
         return None
-    
+
 
 def emphasize_string(string: str, leftpad_num: int = 2):
-    """ Adds a left pad and markdown bold to a text string. 
-    """
+    """Adds a left pad and markdown bold to a text string."""
     return f"{' ' * leftpad_num}**{string}**"
 
+
 def deemphasize_string(string: str):
-    """ Removes padding and astersik from emphasized string.
-        Returns string unmodified if emphasis does not exist.
+    """Removes padding and astersik from emphasized string.
+    Returns string unmodified if emphasis does not exist.
     """
     return string.lstrip(" *").rstrip("*")
 
 
 def set_step_info() -> list[dict]:
-    """ Define the structural configuration for the steps.
-        Doesn't technically need to be in the class.
+    """Define the structural configuration for the steps.
+    Doesn't technically need to be in the class.
     """
     step_info = [
         {"title": "Step 1: Basic Information"},
@@ -91,29 +92,27 @@ def set_step_info() -> list[dict]:
         {"title": "Step 4: Lineup"},
         {"title": "Step 5: Vehicles"},
         {"title": "Step 6: Registration Period"},
-        {"title": "Step 7: Discord Channels"}
+        {"title": "Step 7: Discord Channels"},
     ]
     return step_info
 
 
 def highlight_step(step_info: list[dict], current_step: int) -> str:
-    """ Returns a string where the current step is highlighted for printing
-    """
+    """Returns a string where the current step is highlighted for printing"""
     leftpad_num: int = 2
 
     # Unhighlight all steps to re-initialize
     for item in step_info:
         item = deemphasize_string(string=item["title"])
-    
+
     # Highlight current step for printing
     step_info[current_step]["title"] = emphasize_string(
-        string=step_info[current_step]["title"],
-        leftpad_num=leftpad_num
-        )
-    
+        string=step_info[current_step]["title"], leftpad_num=leftpad_num
+    )
+
     # Consolidate titles into a string of checklist items
     checklist_text = ""
     for step in step_info:
-        checklist_text += f"{step["title"]}\n"
+        checklist_text += f"{step['title']}\n"
 
     return checklist_text

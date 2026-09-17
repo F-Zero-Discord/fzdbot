@@ -52,19 +52,16 @@ def test_player_request_shapes_and_snowflakes_are_strings():
     async def run():
         client, session = client_with(
             Response(200, {}),
-            Response(201, {"points": 42}),
-            Response(200, {"scores": []}),
-            Response(200, {}),
+            Response(201, {"score": 99}),
+            Response(200, {"time_cs": None}),
             Response(204, {}),
-            Response(200, {"scheduled_event_id": 14, "division": None, "entries": []}),
         )
+        now = datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)
 
         await client.set_tag(123456789012345678, "pilot", "Pilot")
-        await client.add_score(123456789012345678, "pilot", "Pilot", 14, 99, 3)
-        await client.list_scores(123456789012345678, 14)
-        await client.edit_score(123456789012345678, 8, 100)
-        await client.delete_score(123456789012345678, 8)
-        await client.scoreboard(14, 123456789012345678)
+        await client.set_score(123456789012345678, "pilot", 14, 3, 99, 2, now)
+        await client.set_time(123456789012345678, "pilot", 14, 3, None, None, now)
+        await client.delete_result(123456789012345678, 14, 3, now)
 
         assert session.calls == [
             (
@@ -74,41 +71,46 @@ def test_player_request_shapes_and_snowflakes_are_strings():
                 {API_KEY_HEADER: "test-key"},
             ),
             (
-                "POST",
-                "https://api.example.test/v1/players/123456789012345678/scores",
+                "PUT",
+                "https://api.example.test/v1/events/14/slots/3/score?now=2026-09-25T19:30:00Z",
                 {
-                    "scheduled_event_id": 14,
+                    "discord_user_id": "123456789012345678",
                     "discord_user_name": "pilot",
-                    "tag": "Pilot",
+                    "machine_id": 2,
                     "score": 99,
-                    "machine_id": 3,
                 },
                 {API_KEY_HEADER: "test-key"},
             ),
             (
-                "GET",
-                "https://api.example.test/v1/players/123456789012345678/scores?scheduled_event_id=14",
-                None,
-                {API_KEY_HEADER: "test-key"},
-            ),
-            (
-                "PATCH",
-                "https://api.example.test/v1/players/123456789012345678/scores/8",
-                {"points": 100},
+                "PUT",
+                "https://api.example.test/v1/events/14/slots/3/time?now=2026-09-25T19:30:00Z",
+                {
+                    "discord_user_id": "123456789012345678",
+                    "discord_user_name": "pilot",
+                    "machine_id": None,
+                    "dnf": True,
+                },
                 {API_KEY_HEADER: "test-key"},
             ),
             (
                 "DELETE",
-                "https://api.example.test/v1/players/123456789012345678/scores/8",
+                "https://api.example.test/v1/events/14/slots/3/result"
+                "?discord_user_id=123456789012345678&now=2026-09-25T19:30:00Z",
                 None,
                 {API_KEY_HEADER: "test-key"},
             ),
-            (
-                "GET",
-                "https://api.example.test/v1/events/14/scoreboard?discord_user_id=123456789012345678",
-                None,
-                {API_KEY_HEADER: "test-key"},
-            ),
+        ]
+
+    asyncio.run(run())
+
+
+def test_schedule_request():
+    async def run():
+        client, session = client_with(Response(200, []))
+
+        assert await client.schedule(14) == []
+        assert [call[:3] for call in session.calls] == [
+            ("GET", "https://api.example.test/v1/events/14/schedule", None),
         ]
 
     asyncio.run(run())
@@ -123,6 +125,47 @@ def test_machine_and_active_event_requests():
         assert [call[:3] for call in session.calls] == [
             ("GET", "https://api.example.test/v1/machines", None),
             ("GET", "https://api.example.test/v1/events/active", None),
+        ]
+
+    asyncio.run(run())
+
+
+def test_event_detail_and_scoreboard_requests():
+    async def run():
+        client, session = client_with(
+            Response(200, {"scheduled_event_id": 14}),
+            Response(200, {"rows": []}),
+            Response(200, {"rows": []}),
+            Response(200, {"rows": []}),
+        )
+
+        assert await client.event_detail(14) == {"scheduled_event_id": 14}
+        await client.scoreboard(14)
+        await client.scoreboard(14, division_id=7)
+        await client.scoreboard(14, team_id=12)
+
+        assert [call[:3] for call in session.calls] == [
+            ("GET", "https://api.example.test/v1/events/14", None),
+            ("GET", "https://api.example.test/v1/events/14/scoreboard", None),
+            ("GET", "https://api.example.test/v1/events/14/scoreboard?division_id=7", None),
+            ("GET", "https://api.example.test/v1/events/14/scoreboard?team_id=12", None),
+        ]
+
+    asyncio.run(run())
+
+
+def test_event_types_request_spells_the_filter_lowercase():
+    async def run():
+        client, session = client_with(Response(200, []), Response(200, []), Response(200, []))
+
+        await client.event_types()
+        await client.event_types(recurring=True)
+        await client.event_types(recurring=False)
+
+        assert [call[:3] for call in session.calls] == [
+            ("GET", "https://api.example.test/v1/event-types", None),
+            ("GET", "https://api.example.test/v1/event-types?recurring=true", None),
+            ("GET", "https://api.example.test/v1/event-types?recurring=false", None),
         ]
 
     asyncio.run(run())
@@ -156,5 +199,6 @@ def test_problem_document_becomes_renderable_error():
             await client.set_tag(123456789012345678, "pilot", "Pilot")
 
         assert error.value.status == 422
+        assert error.value.refusal() == "tag must be at most 10 characters"
 
     asyncio.run(run())

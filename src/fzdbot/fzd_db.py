@@ -20,6 +20,7 @@ async def _safe_rollback(conn, source: str = "unknown") -> None:
     except aiomysql.Error as rollback_error:
         logger.warning(f"[DB] Rollback skipped ({source}): {rollback_error}")
 
+
 async def init_db_pool():
     global _connection_pool
     settings = get_settings()
@@ -28,6 +29,7 @@ async def init_db_pool():
         _connection_pool = await aiomysql.create_pool(minsize=1, maxsize=POOL_SIZE, **settings.db_config)
         logger.info("Database pool created")
     return _connection_pool
+
 
 async def get_connection_from_pool():
     """
@@ -52,6 +54,7 @@ async def get_connection_from_pool():
         raise
     return conn
 
+
 @asynccontextmanager
 async def get_db_connection():
     """
@@ -74,6 +77,7 @@ async def get_db_connection():
     finally:
         if conn:
             _connection_pool.release(conn)  # release_connection(conn)
+
 
 async def execute_query(conn, query, params=None, fetch="all", isProc: bool = False):
     """
@@ -106,12 +110,14 @@ async def execute_query(conn, query, params=None, fetch="all", isProc: bool = Fa
             logger.error(f"[DB QUERY ERROR]: {e}\nQuery: {query}\nParams: {params}")
             raise
 
+
 async def get_event_types(db):
     """Get event types and ids of recurring events from 'events' table"""
     sql_gettypes = "SELECT id, name FROM events"  # WHERE recurring = 1"
     eventtypes = await execute_query(db, sql_gettypes, fetch="all")
 
     return eventtypes  # [{'id': 7, 'name': 'Weekly Classic Mini'} . . .
+
 
 async def create_event(db, event, duration: int = 2) -> None:
     """Inserts new event into the 'events_scheduled' database
@@ -124,6 +130,7 @@ async def create_event(db, event, duration: int = 2) -> None:
     await execute_query(
         db, sql_addevent, params=(event["id"], now.strftime(tformat), endtime.strftime(tformat)), fetch=None
     )
+
 
 async def check_for_active_event(db, hours_from_now: int = 0):
     """Checks database event times start and end times to see if
@@ -147,6 +154,7 @@ async def check_for_active_event(db, hours_from_now: int = 0):
             active_event["is_machine_input_required"] = bool(raw_machine_flag)
 
     return active_event
+
 
 async def get_event_schedule(db):
     """Executes sql process query to get scheduled events in future"""
