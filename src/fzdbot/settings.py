@@ -1,6 +1,7 @@
 import logging
 import sys
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,9 +66,25 @@ class Settings(BaseSettings):
         }
 
 
+_env_file = ".env"
+
+
+def use_env(name: str) -> None:
+    """Read `.env.<name>` in place of `.env`, not on top of it: a setting the
+    named file leaves out fails validation rather than being taken from `.env`.
+    pydantic-settings skips an env file that does not exist, so a mistyped
+    name is refused here."""
+    global _env_file
+    path = Path(f".env.{name}")
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} does not exist in {Path.cwd()}")
+    _env_file = str(path)
+    get_settings.cache_clear()
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore
+    return Settings(_env_file=_env_file)  # type: ignore
 
 
 def configure_logging() -> None:

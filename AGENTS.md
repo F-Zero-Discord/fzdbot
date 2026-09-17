@@ -114,21 +114,100 @@ calls the second, so `utils/event_class.instant_to_naive_utc` drops the offset
 rather than carrying it. Carrying it would make `reg_open > datetime.now()`
 raise instead of answer.
 
-## Running against stage
+## Running locally, against stage or a local API
 
-**There is one bot token, so there is one bot.** Two processes on the same token
-both receive every interaction, so a second instance run alongside the live one
-double-handles real commands -- one write to whatever that instance points at,
-one to the other. Scoping `SERVER_ID` to another guild does not fix it: command
-*registration* is per guild, interaction *delivery* is per application.
+**There is one bot token per Discord application, so one bot per application.**
+Two processes on the same token both receive every interaction, so a second
+instance run alongside the live one double-handles real commands -- one write to
+whatever that instance points at, one to the other. Scoping `SERVER_ID` to
+another guild does not fix it: command *registration* is per guild, interaction
+*delivery* is per application.
 
-So testing against stage means the live bot is stopped for the duration. The
-sequence, on the VPS:
+So a local run uses **a Discord application of its own**, never the token in the
+deployment's `.env`: any application you own, invited to a test guild with the
+`applications.commands` scope and the message-content and members intents on.
+Starting fzdbot syncs its command tree to `SERVER_ID`, replacing whatever that
+application had registered there.
+
+**`fzdbot --env NAME` reads `.env.NAME` in place of `.env`**, not on top of it:
+a setting the named file leaves out fails startup rather than being taken from
+another file, and a name with no file is refused. Without the flag the bot reads
+`.env`, which is what the deployment has. Every `.env*` but `.env.example` is
+ignored by git. The names in use:
+
+| File | Run |
+|---|---|
+| `.env.stage` | this bot, locally, against `api-stage.fzd.gg` |
+| `.env.stage-local-api` | this bot, locally, against a local `fzd-api` over the stage database |
+| `.env.prod` | the live bot's settings. **On a development machine keep them here, not in `.env`**, so a bare `fzdbot` stops at startup instead of logging in as the live bot |
+
+`.env.stage`, mode 600:
+
+```bash
+DISCORD_TOKEN=...                 # the test application's, not the live bot's
+SERVER_ID=...                     # the test guild
+ERROR_ALERT_CHANNEL_ID=...        # a channel in the test guild; empty disables alerts,
+                                  # absent falls back to FZD's own channel
+DB_HOST=...                       # the stage database server
+DB_PORT=3306
+DB_USER=...
+DB_PASSWORD=...
+DB_NAME=fzd_stage
+FZD_API_BASE_URL=https://api-stage.fzd.gg
+FZD_API_KEY=...                   # ssh fzd 'sudo cat /etc/fzd-api/issued/stage-fzdbot.key'
+```
+
+`FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
+run that forgets them stops at startup rather than failing ten commands one at a
+time. `DB_NAME` moves with them: `/fzd_start_event` and `/fzd_events_schedule`
+still use the pool, and pointing the API at stage while the pool wrote elsewhere
+would split one command's effects across two schemas.
+
+### Against api-stage
+
+```bash
+uv run fzdbot --env stage
+```
+
+Stage serves whatever branch was last published to it (`./scripts/publish stage
+<branch>` in `fzd-api`, a `git pull` on the VPS), so it cannot serve uncommitted
+API work. A 404 on a route this client calls means stage is behind; check with
+`curl -H "X-API-Key: $FZD_API_KEY" $FZD_API_BASE_URL/v1/events/active`.
+
+### Against a local fzd-api
+
+For API work that stage does not serve yet, run the `../fzd-api` checkout on
+`:8000` over the stage database and point the bot at it. `.env.stage-local-api`
+is `.env.stage` with `FZD_API_BASE_URL=http://127.0.0.1:8000` and a key minted
+for the local API. Mint it once, in
+`fzd-api`: `uv run api-key-new fzdbot-local` prints the key and the
+`FZD_API_CLIENT_KEYS` JSON entry for it; keep both (`~/.config/fzd/local-api-key.txt`).
+
+```bash
+uv run serve --env stage-db            # terminal 1, in ../fzd-api
+uv run fzdbot --env stage-local-api    # terminal 2, in this repo
+```
+
+`.env.stage-db` is `fzd-api`'s file and is described in its `AGENTS.md` under
+Environments: its `.env` with the database settings of `.env.stage` here,
+`FZD_API_DB_SSL=off`, port 8000, stage's GGP8 and rival event ids
+(`[735,736,737,738,739]` and `[736,737,738,739]`) and the minted key's
+`FZD_API_CLIENT_KEYS` entry.
+
+`curl localhost:8000/health/database` must name `fzd_stage` before the bot
+starts. A bot key passes every staff gate, so stage data can be seeded through
+the API itself -- `PUT /v1/events/{id}/schedule`, and result `PUT`s with `?now=`
+inside the event's window -- rather than by SQL.
+
+### On the VPS, with the live token
+
+Only when the live application itself has to be the one tested. The live bot is
+stopped for the duration:
 
 ```bash
 sudo systemctl stop fzdbot                      # one token, one bot
 sudo -u fzdbot git -C /opt/fzdbot/app fetch --all
-sudo -u fzdbot git -C /opt/fzdbot/app checkout feat/port-to-api
+sudo -u fzdbot git -C /opt/fzdbot/app checkout <branch under test>
 sudo -u fzdbot bash -c 'cd /opt/fzdbot/app && ~/.local/bin/uv sync --frozen'
 ```
 
@@ -145,16 +224,10 @@ sudo -u fzdbot bash -c 'cd /opt/fzdbot/app
   ~/.local/bin/uv run --no-sync fzdbot'
 ```
 
-`FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
-run that forgets them stops at startup rather than failing nine commands one at
-a time. `DB_NAME` moves too: `/fzd_start_event` and `/fzd_events_schedule` still
-use the pool, and pointing the API at stage while the pool wrote to prod would
-split one command's effects across two schemas.
-
 Going back is a checkout and a restart; nothing above wrote to a file:
 
 ```bash
-sudo -u fzdbot git -C /opt/fzdbot/app checkout refactor/ggp8-register-session
+sudo -u fzdbot git -C /opt/fzdbot/app checkout <the deployed branch>
 sudo systemctl start fzdbot
 ```
 

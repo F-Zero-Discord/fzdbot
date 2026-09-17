@@ -1,3 +1,4 @@
+import argparse
 import logging
 import sys
 
@@ -8,7 +9,7 @@ from discord.ext import commands
 from fzdbot.error_alerts import send_error_alert
 from fzdbot.fzd_api import FzdApi
 from fzdbot.fzd_db import init_db_pool
-from fzdbot.settings import configure_logging, get_settings
+from fzdbot.settings import configure_logging, get_settings, use_env
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,15 @@ class FZDBot(commands.Bot):
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(prog="fzdbot")
+    parser.add_argument("--env", metavar="NAME", help="read settings from .env.NAME instead of .env")
+    args = parser.parse_args()
+    if args.env:
+        try:
+            use_env(args.env)
+        except FileNotFoundError as error:
+            parser.error(str(error))
+
     settings = get_settings()
     configure_logging()
     intents = discord.Intents.default()
