@@ -5,8 +5,7 @@
 - **All code**: `fzdbot/` - Where all the code lives
 - **Application**: `fzdbot/bot.py` — main()
 - **API client**: `fzdbot/fzd_api.py` — how this bot reaches FZD's data
-
-**This repo has no tests.**
+- **Tests**: `tests/` — `./.venv/bin/pytest -q`; pure functions and the live-board tick against fakes
 
 ## Design Philosophy
 
@@ -32,7 +31,10 @@ Rules of thumb:
 
 ## Tests
 
-There are currently no tests, and you will not make any, unless explicitly make them by the user.
+`tests/` covers what runs without Discord or the API: the renderer, the parsers,
+the client's request shapes, and the live-board tick against a fake API and a
+fake channel. Add a test only where a task asks for one; nothing here spins up
+a bot.
 
 ## Where the data comes from
 
@@ -98,11 +100,27 @@ team block above the individuals on a team event, `~~struck~~` on a result a
 mulligan dropped, `×N` on a slot heading with a multiplier, times as `m:ss.cc`
 with the loss to the slot's leader as `+s.cc`, `DNF` and `—` (not entered)
 told apart, and an unopened time slot left blank. Nothing here sums, ranks or
-names an event. `/setup_scoreboard` offers GGP8's events and whatever is
-running, and a chosen event's groups; the post is a snapshot and does not
-update, which its description says. `/fzd_show` is the weeklies' command: it
-offers `GET /v1/event-types?recurring=true`, read per interaction, takes the
-latest event of the chosen type and posts it whole.
+names an event. `/fzd_show` is the weeklies' command: it offers
+`GET /v1/event-types?recurring=true`, read per interaction, takes the latest
+event of the chosen type and posts it whole, once.
+
+**`/setup_scoreboard` posts a board that keeps itself current.** It offers
+GGP8's events and whatever is running, and a chosen event's groups. Run in the
+channel the board should live in, it sends one message per board with
+`channel.send` — every division of a division event when no group is named,
+otherwise one — and registers each with `PUT /v1/scoreboards/{message_id}`
+(`channel_id`, `scheduled_event_id`, the `division_id` or `team_id`). Which
+messages are live is the API's to hold: one `discord.ext.tasks.loop` in
+`cogs/show_scoreboard.py`, every `SCOREBOARD_REFRESH_SECONDS` (default 10),
+reads `GET /v1/scoreboards`, renders each row from the same two reads and edits
+the message through `get_partial_messageable(...).get_partial_message(...)`
+where the render changed. Reading the registry each tick is the whole restart
+path. Past the detail's `ends_at` a board is drawn once more with
+`**Final results**` and its row `DELETE`d; a `NotFound` on edit, or a 404 on
+the event, deletes the row too. Anything else logs, alerts once per board
+through `error_alerts`, and leaves the row for the next tick. There is no stop
+command: delete the message. Nothing gates who may run it; that is set on the
+command in Discord's integration settings, as for `/set_vote`.
 
 **A player is named by their Discord id.** Every API path takes the snowflake,
 and `users.id` appears nowhere in this repo — nothing here resolves an account,
@@ -131,9 +149,12 @@ interaction and the bot holds no state between them. If you find a cache in this
 repo or on a branch being harvested — a module or class-level dict of options
 or event config, a TTL, a list loaded once in `cog_load` — tell the user where
 it is and what reads it, and ask whether it should be removed. Do not extend
-it, tune it or validate input against it, and do not add one. `get_settings`'s
-`lru_cache` in `settings.py` is configuration read once, not data: leave it and
-do not ask about it.
+it, tune it or validate input against it, and do not add one. Two things are
+not that: `get_settings`'s `lru_cache` in `settings.py` is configuration read
+once, not data; and the live-board loop's `_rendered` and `_failing` in
+`cogs/show_scoreboard.py` remember only what the last tick edited and what
+failed, so an unchanged board costs no edit and a stuck one alerts once. Both
+are rebuilt from the API on the next tick and nothing reads them but the loop.
 
 **Instants from the API are stored naive UTC.** `datetime.now()` and
 `datetime.timestamp()` both read a naive datetime as local time, and

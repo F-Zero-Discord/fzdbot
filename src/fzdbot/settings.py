@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     faq_channel_id: int | None = 1216189837502316565
     scoreboard_display_podium: bool = False
     scoreboard_lines_per_block: int = 8
+    scoreboard_refresh_seconds: int = 10
 
     @field_validator(
         "error_alert_channel_id",

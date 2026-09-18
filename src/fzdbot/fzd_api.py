@@ -107,8 +107,7 @@ class FzdApi:
         was nothing, 409 once the event is not running at `now`."""
         await self._request(
             "DELETE",
-            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/result"
-            f"?discord_user_id={discord_user_id}&now={_instant(now)}",
+            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/result?discord_user_id={discord_user_id}&now={_instant(now)}",
         )
 
     @staticmethod
@@ -273,6 +272,40 @@ class FzdApi:
         """Everybody currently registered for a GGP8 event, one row per player
         per event, each with their division or team and their Discord id."""
         return await self._request("GET", "/v1/ggp8/registrations")
+
+    async def live_scoreboards(self) -> list[dict[str, Any]]:
+        """Every message registered as a live board: `message_id` and
+        `channel_id` as strings, `scheduled_event_id`, and the `division_id`
+        or `team_id` it is narrowed to, both null for a whole event.
+        """
+        return await self._request("GET", "/v1/scoreboards")
+
+    async def register_scoreboard(
+        self,
+        message_id: int,
+        channel_id: int,
+        scheduled_event_id: int,
+        *,
+        division_id: int | None = None,
+        team_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Make the message a live board. Idempotent; the API refuses a group
+        the event does not have (404) or of the kind it does not group by (422).
+        """
+        return await self._request(
+            "PUT",
+            f"/v1/scoreboards/{message_id}",
+            json={
+                "channel_id": str(channel_id),
+                "scheduled_event_id": scheduled_event_id,
+                "division_id": division_id,
+                "team_id": team_id,
+            },
+        )
+
+    async def stop_scoreboard(self, message_id: int) -> None:
+        """Take the message out of the registry. 204 whether or not it was in it."""
+        await self._request("DELETE", f"/v1/scoreboards/{message_id}")
 
     async def rivals(self, discord_user_id: int, now: datetime) -> dict[str, Any]:
         """Every event running a Rival Challenge with this player's standing in

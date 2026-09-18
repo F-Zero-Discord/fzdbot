@@ -79,6 +79,7 @@ Defaulted settings (used automatically if missing from `.env`):
 * `ERROR_ALERT_CHANNEL_ID` defaults to FZD's alert channel; set it empty to disable Discord error alerts
 * `SCOREBOARD_DISPLAY_PODIUM` defaults to `false`
 * `SCOREBOARD_LINES_PER_BLOCK` defaults to `8`
+* `SCOREBOARD_REFRESH_SECONDS` defaults to `10`: how often a live board set up by `/setup_scoreboard` is re-read and, when its standings changed, edited
 
 What happens when values are missing or empty:
 
