@@ -6,11 +6,11 @@ from typing import cast
 
 import discord
 import pytest
-from discord.ext import commands
 
 from fzdbot.cogs import show_scoreboard
 from fzdbot.cogs.show_scoreboard import Scoreboard
 from fzdbot.fzd_api import FzdApiError
+from fzdbot.main import FZDBot
 
 PAST, FUTURE = "2026-09-01T20:00:00Z", "2099-01-01T20:00:00Z"
 
@@ -135,7 +135,7 @@ def alerts(monkeypatch):
 
 
 def tick(bot, times=1, cog=None):
-    cog = cog or Scoreboard(cast(commands.Bot, bot))
+    cog = cog or Scoreboard(cast(FZDBot, bot))
 
     async def run():
         for _ in range(times):

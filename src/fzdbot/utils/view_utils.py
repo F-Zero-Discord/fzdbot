@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -45,13 +45,13 @@ class DivTeam(StrEnum):
 def time_string_to_datetime(time_string: str, fmt="%Y-%m-%d %H:%M") -> datetime | None:
     """Parse a date-time string with the specified format."""
     try:
-        return datetime.strptime(time_string, fmt).replace(tzinfo=timezone.utc)
+        return datetime.strptime(time_string, fmt).replace(tzinfo=UTC)
     except ValueError as e:
         print(f"Invalid input '{time_string}': {e}")
         return None
 
 
-def discord_timestamp(dt: datetime, format_type: str = "short") -> str | None:
+def discord_timestamp(dt: datetime | None, format_type: str = "short") -> str | None:
     """Convert a datetime object to a Discord-formatted timestamp string."""
     match format_type:
         case "short":
@@ -98,7 +98,7 @@ def set_step_info() -> list[dict]:
 
 
 def highlight_step(step_info: list[dict], current_step: int) -> str:
-    """Returns a string where the current step is highlighted for printing"""
+    """Returns a string where the current step is highlighted for printing."""
     leftpad_num: int = 2
 
     # Unhighlight all steps to re-initialize

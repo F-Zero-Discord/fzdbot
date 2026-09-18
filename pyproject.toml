@@ -42,11 +42,30 @@ typeCheckingMode = "standard"
 
 [tool.ruff]
 target-version = "py312"
-line-length = 114
-extend-exclude = [
-    ".venv",
-    ".uv-cache",
-    ".ruff_cache",
-    ".pytest_cache",
-    "__pycache__",
+line-length = 120
+src = ["src"]
+exclude = [".venv", "build", "dist"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "C4",  # flake8-comprehensions
+  "N",   # pep8-naming
+  "RUF", # ruff-specific
+  "D419", # empty docstring; whether a thing has one is a judgement, that it says something is not
 ]
+ignore = [
+  "E501", # line length — let the formatter handle it
+]
+# `×` is the multiplier mark on a scoreboard slot heading (`×3`), rendered on purpose.
+allowed-confusables = ["×"]

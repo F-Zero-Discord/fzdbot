@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -44,7 +44,7 @@ class Session:
 def client_with(*responses):
     client = FzdApi("https://api.example.test/", "test-key")
     session = Session(responses)
-    client._session = session
+    client._session = session  # pyright: ignore[reportAttributeAccessIssue]
     return client, session
 
 
@@ -56,7 +56,7 @@ def test_player_request_shapes_and_snowflakes_are_strings():
             Response(200, {"time_cs": None}),
             Response(204, {}),
         )
-        now = datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 9, 25, 19, 30, tzinfo=UTC)
 
         await client.set_tag(123456789012345678, "pilot", "Pilot")
         await client.set_score(123456789012345678, "pilot", 14, 3, 99, 2, now)
@@ -94,8 +94,7 @@ def test_player_request_shapes_and_snowflakes_are_strings():
             ),
             (
                 "DELETE",
-                "https://api.example.test/v1/events/14/slots/3/result"
-                "?discord_user_id=123456789012345678&now=2026-09-25T19:30:00Z",
+                "https://api.example.test/v1/events/14/slots/3/result?discord_user_id=123456789012345678&now=2026-09-25T19:30:00Z",
                 None,
                 {API_KEY_HEADER: "test-key"},
             ),
@@ -174,7 +173,7 @@ def test_event_types_request_spells_the_filter_lowercase():
 def test_latest_event_request_omits_an_empty_event_type():
     async def run():
         client, session = client_with(Response(200, {}), Response(200, {}))
-        now = datetime(2026, 9, 2, 19, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 9, 2, 19, 30, tzinfo=UTC)
 
         await client.latest_event(None, now)
         await client.latest_event("7", now)

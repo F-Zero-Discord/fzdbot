@@ -28,6 +28,10 @@ class FlowSession(Protocol):
 
     async def expire(self) -> None: ...
 
+    def select_event(self, scheduled_event_id: int | None) -> None: ...
+
+    new_div_team_id: int | None
+
 
 #################################
 # View base classes
@@ -127,8 +131,7 @@ class GenericButton(ui.Button):
 
         if self.parent_view.session is None:
             raise RuntimeError(
-                f"{type(self.parent_view).__name__} was shown without a session attached; "
-                "set view.session before sending it."
+                f"{type(self.parent_view).__name__} was shown without a session attached; set view.session before sending it."
             )
 
         # No defer() here: the session decides whether this step needs a

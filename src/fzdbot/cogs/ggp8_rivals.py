@@ -10,7 +10,7 @@ the refusal a user sees.
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import discord
@@ -19,6 +19,7 @@ from discord.ext import commands
 
 from fzdbot.formatters import format_discord_timestamp
 from fzdbot.fzd_api import FzdApiError
+from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,8 @@ def _player_name(player: dict[str, Any]) -> str:
 
 def _group(registration: dict[str, Any]) -> str | None:
     """The division or team a registration row names. An event runs on one or
-    the other, so exactly one is set."""
+    the other, so exactly one is set.
+    """
     return registration["division"] or registration["team"]
 
 
@@ -55,7 +57,8 @@ def _names(players: list[dict[str, Any]], empty: str) -> str:
 
 def _event_field(event: dict[str, Any], challengers: list[dict[str, Any]]) -> tuple[str, str]:
     """One embed field: the event as its name, and under it the caller's pick
-    and everyone who picked them, each as a quoted block."""
+    and everyone who picked them, each as a quoted block.
+    """
     starts_at = format_discord_timestamp(datetime.fromisoformat(event["starts_at"]))
     when = f"🔒 Started {starts_at}" if event["locked"] else f"Starts {starts_at}"
 
@@ -73,7 +76,7 @@ def _event_field(event: dict[str, Any], challengers: list[dict[str, Any]]) -> tu
 
 
 class Ggp8Rivals(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: FZDBot):
         self.bot = bot
 
     async def event_autocomplete(
@@ -82,11 +85,12 @@ class Ggp8Rivals(commands.Cog):
         """GGP8's events that run a Rival Challenge. `/v1/ggp8/events` is the
         list, and the caller's rivals overview says which of them take a pick,
         so an event without one (Yahtzee) is never offered and no name is
-        written here to exclude it."""
+        written here to exclude it.
+        """
         try:
             events, overview = await asyncio.gather(
                 self.bot.api.ggp8_events(),
-                self.bot.api.rivals(interaction.user.id, datetime.now(timezone.utc)),
+                self.bot.api.rivals(interaction.user.id, datetime.now(UTC)),
             )
         except FzdApiError as error:
             logger.warning("[ggp8_rivals] event autocomplete could not read the API: %s", error)
@@ -120,9 +124,7 @@ class Ggp8Rivals(commands.Cog):
             return []
 
         # A registrant with no stored Discord id cannot be named in a pick.
-        players = [
-            row for row in registrations if row["scheduled_event_id"] == int(event) and row["discord_user_id"]
-        ]
+        players = [row for row in registrations if row["scheduled_event_id"] == int(event) and row["discord_user_id"]]
         own = next((row for row in players if int(row["discord_user_id"]) == interaction.user.id), None)
         own_group = _group(own) if own is not None else None
 
@@ -146,9 +148,7 @@ class Ggp8Rivals(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            result = await self.bot.api.choose_rival(
-                interaction.user.id, int(event), int(user), datetime.now(timezone.utc)
-            )
+            result = await self.bot.api.choose_rival(interaction.user.id, int(event), int(user), datetime.now(UTC))
         except FzdApiError as error:
             await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
             return
@@ -164,30 +164,22 @@ class Ggp8Rivals(commands.Cog):
     @app_commands.describe(event="The GGP8 event")
     async def delete_rival(self, interaction: discord.Interaction, event: str) -> None:
         if not event.isdigit():
-            await interaction.response.send_message(
-                "Pick the event from the list the command offers.", ephemeral=True
-            )
+            await interaction.response.send_message("Pick the event from the list the command offers.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            result = await self.bot.api.withdraw_rival(
-                interaction.user.id, int(event), datetime.now(timezone.utc)
-            )
+            result = await self.bot.api.withdraw_rival(interaction.user.id, int(event), datetime.now(UTC))
         except FzdApiError as error:
             await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
             return
 
-        await interaction.followup.send(
-            f"You no longer have a rival for **{_event_label(result)}**.", ephemeral=True
-        )
+        await interaction.followup.send(f"You no longer have a rival for **{_event_label(result)}**.", ephemeral=True)
 
-    @app_commands.command(
-        name="ggp8_rivals_show", description="Your rivals, and who has picked you, per GGP8 event"
-    )
+    @app_commands.command(name="ggp8_rivals_show", description="Your rivals, and who has picked you, per GGP8 event")
     async def show_rivals(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
-            overview = await self.bot.api.rivals(interaction.user.id, datetime.now(timezone.utc))
+            overview = await self.bot.api.rivals(interaction.user.id, datetime.now(UTC))
         except FzdApiError as error:
             await interaction.followup.send(f"❌ {error}", ephemeral=True)
             return
@@ -222,6 +214,6 @@ class Ggp8Rivals(commands.Cog):
         self.delete_rival.autocomplete("event")(self.event_autocomplete)
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: FZDBot) -> None:
     settings = get_settings()
     await bot.add_cog(Ggp8Rivals(bot), guild=discord.Object(id=settings.server_id))

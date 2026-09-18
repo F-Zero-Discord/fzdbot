@@ -13,7 +13,7 @@ sentence the user reads.
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import discord
@@ -21,6 +21,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from fzdbot.fzd_api import FzdApiError
+from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label, format_time, slot_name, track_label, vote_winner
 from fzdbot.settings import get_settings
 
@@ -50,7 +51,8 @@ def parse_score(text: str) -> int | None:
 
 def parse_time(text: str) -> int | None:
     """Centiseconds as entered, or `None` for a DNF. `ValueError` for anything
-    that is not minutes, seconds under sixty and centiseconds."""
+    that is not minutes, seconds under sixty and centiseconds.
+    """
     if text.strip().casefold() == DNF:
         return None
     match = TIME.match(text.strip())
@@ -66,7 +68,8 @@ def _choice_name(event: dict[str, Any], slot: dict[str, Any], division_id: int |
     """`Friday EU #3 99 for mirror Sand Ocean (mSO)` once the player's lobby has voted.
     `division_id` is the group the player holds in the event, which names a
     lobby only where the event has divisions; anywhere else the event has one
-    lobby, and its vote is the one shown."""
+    lobby, and its vote is the one shown.
+    """
     name = f"{event_label(event)} #{slot['position']} {slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id) or vote_winner(slot)
     if winner:
@@ -76,7 +79,8 @@ def _choice_name(event: dict[str, Any], slot: dict[str, Any], division_id: int |
 
 def recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
     """Sort key: the slot that started most recently first, then the ones still
-    to come soonest first, then the ones with no start entered."""
+    to come soonest first, then the ones with no start entered.
+    """
     if slot["starts_at"] is None:
         return (2, 0.0)
     starts_at = datetime.fromisoformat(slot["starts_at"])
@@ -86,15 +90,14 @@ def recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
 
 
 class Submissions(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: FZDBot):
         self.bot = bot
 
-    async def slot_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         """Every slot of every event running now, the one raced most recently
         first. One placeholder when there is nothing to pick: no event, or an
-        event whose schedule has not been entered."""
+        event whose schedule has not been entered.
+        """
         try:
             events = await self.bot.api.active_events()
             schedules = await asyncio.gather(*(self.bot.api.schedule(e["scheduled_event_id"]) for e in events))
@@ -105,9 +108,9 @@ class Submissions(commands.Cog):
         if not events:
             return [app_commands.Choice(name="No event is running right now", value=NO_EVENT)]
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         slots = sorted(
-            ((event, slot) for event, schedule in zip(events, schedules) for slot in schedule),
+            ((event, slot) for event, schedule in zip(events, schedules, strict=False) for slot in schedule),
             key=lambda pair: recency(pair[1], now),
         )
         if not slots:
@@ -116,8 +119,7 @@ class Submissions(commands.Cog):
         groups = await self._groups(interaction.user.id, schedules, now)
         needle = current.casefold()
         named = [
-            (_choice_name(event, slot, groups.get(event["scheduled_event_id"])), event, slot)
-            for event, slot in slots
+            (_choice_name(event, slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots
         ]
         choices = [
             app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
@@ -131,7 +133,8 @@ class Submissions(commands.Cog):
     ) -> dict[int, int]:
         """The group this player holds in each event, by event id. Read only
         when some slot holds a division's vote, which is the one thing here
-        that depends on who is asking; a failed read shows the slots unlabelled."""
+        that depends on who is asking; a failed read shows the slots unlabelled.
+        """
         votes = (vote for schedule in schedules for slot in schedule for vote in slot["vote_winners"])
         if all(vote["division_id"] is None for vote in votes):
             return {}
@@ -164,7 +167,8 @@ class Submissions(commands.Cog):
 
     async def _machine_id(self, machine: str | None) -> int | None:
         """The id of the machine named, or `None` for none. `ValueError` for a
-        name the API does not list."""
+        name the API does not list.
+        """
         if machine is None:
             return None
         for row in await self.bot.api.machines():
@@ -175,7 +179,8 @@ class Submissions(commands.Cog):
     async def _describe(self, scheduled_event_id: int, slot_id: int) -> str:
         """`Wacky Wednesday #1 Knight`: the event and the slot as a sentence
         names them, read after the write. Falls back to the ids when a read
-        fails: the result is set either way, and the confirmation should say so."""
+        fails: the result is set either way, and the confirmation should say so.
+        """
         try:
             events, schedule = await asyncio.gather(
                 self.bot.api.active_events(), self.bot.api.schedule(scheduled_event_id)
@@ -188,18 +193,18 @@ class Submissions(commands.Cog):
         where = event_label(event) if event else f"event {scheduled_event_id}"
         return f"{where} {slot_name(slot) if slot else f'slot {slot_id}'}"
 
-    async def _confirm(
-        self, interaction: discord.Interaction, scheduled_event_id: int, slot_id: int, did: str
-    ) -> None:
+    async def _confirm(self, interaction: discord.Interaction, scheduled_event_id: int, slot_id: int, did: str) -> None:
         """Public, in the channel the command was run in, so a lobby sees what
-        was set. This replaces the deferral's placeholder."""
+        was set. This replaces the deferral's placeholder.
+        """
         where = await self._describe(scheduled_event_id, slot_id)
         await interaction.followup.send(f"✅ User {interaction.user.display_name} has {did} for {where}.")
 
     @staticmethod
     async def _refuse(interaction: discord.Interaction, sentence: str) -> None:
         """Ephemeral either way. Once the public deferral is out, its placeholder
-        is removed first, so the channel never shows a refusal."""
+        is removed first, so the channel never shows a refusal.
+        """
         if interaction.response.is_done():
             await interaction.delete_original_response()
             await interaction.followup.send(sentence, ephemeral=True)
@@ -208,7 +213,8 @@ class Submissions(commands.Cog):
 
     async def _slot_ids(self, interaction: discord.Interaction, slot: str) -> tuple[int, int] | None:
         """The event and slot ids a choice carries, or `None` after telling the
-        user why there is nothing to submit to."""
+        user why there is nothing to submit to.
+        """
         match = SLOT_VALUE.match(slot.strip())
         if match:
             return int(match.group(1)), int(match.group(2))
@@ -250,7 +256,7 @@ class Submissions(commands.Cog):
                 slot_id,
                 points,
                 machine_id,
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
             )
         except ValueError:
             await self._refuse(interaction, "Pick a machine from the list.")
@@ -302,7 +308,7 @@ class Submissions(commands.Cog):
                 slot_id,
                 time_cs,
                 machine_id,
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
             )
         except ValueError:
             await self._refuse(interaction, "Pick a machine from the list.")
@@ -322,9 +328,7 @@ class Submissions(commands.Cog):
             time_cs,
         )
 
-    @app_commands.command(
-        name="delete_submission", description="Remove your result from a slot of the running event"
-    )
+    @app_commands.command(name="delete_submission", description="Remove your result from a slot of the running event")
     @app_commands.describe(slot="Which slot to clear")
     async def delete_submission(self, interaction: discord.Interaction, slot: str) -> None:
         ids = await self._slot_ids(interaction, slot)
@@ -334,18 +338,14 @@ class Submissions(commands.Cog):
         await interaction.response.defer()
 
         try:
-            await self.bot.api.delete_result(
-                interaction.user.id, scheduled_event_id, slot_id, datetime.now(timezone.utc)
-            )
+            await self.bot.api.delete_result(interaction.user.id, scheduled_event_id, slot_id, datetime.now(UTC))
         except FzdApiError as error:
             logger.warning("[submissions] delete_result refused for user=%s: %s", interaction.user, error)
             await self._refuse(interaction, error.refusal())
             return
 
         await self._confirm(interaction, scheduled_event_id, slot_id, "removed their submission")
-        logger.info(
-            "[submissions] user=%s event=%s slot=%s removed", interaction.user, scheduled_event_id, slot_id
-        )
+        logger.info("[submissions] user=%s event=%s slot=%s removed", interaction.user, scheduled_event_id, slot_id)
 
     async def cog_load(self) -> None:
         for command in (self.submit_score, self.submit_time, self.delete_submission):
@@ -354,5 +354,5 @@ class Submissions(commands.Cog):
             command.autocomplete("machine")(self.machine_autocomplete)
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: FZDBot) -> None:
     await bot.add_cog(Submissions(bot), guild=discord.Object(id=get_settings().server_id))

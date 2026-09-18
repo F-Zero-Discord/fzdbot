@@ -18,7 +18,8 @@ class Board:
     """One embed's worth: what the title says after the event's name, the
     lines above the standings, and the standings one line per player, a
     ranked team block first on a team event. `lines` is empty when nobody
-    has a result."""
+    has a result.
+    """
 
     title: str
     notes: list[str] = field(default_factory=list)
@@ -33,7 +34,8 @@ def track_label(track: dict[str, Any]) -> str:
     """`mirror Big Blue (mBB)`, `Big Blue (BB)`. A name is shared by a standard,
     a mirror and a classic track, so the type is said wherever it is not
     standard, in words and again as the short name where the track has one.
-    Takes a slot's track, a `/v1/tracks` row or a vote winner."""
+    Takes a slot's track, a `/v1/tracks` row or a vote winner.
+    """
     name = track.get("track_name") or track["name"]
     kind = track.get("track_type") or track["type"]
     short_name = track.get("track_short_name") or track.get("short_name")
@@ -43,13 +45,15 @@ def track_label(track: dict[str, Any]) -> str:
 
 def vote_winner(slot: dict[str, Any], division_id: int | None = None) -> dict[str, Any] | None:
     """The track one lobby voted in on a race slot. A lobby is a division, and
-    `None` is the one lobby of an event that has no divisions."""
+    `None` is the one lobby of an event that has no divisions.
+    """
     return next((vote for vote in slot["vote_winners"] if vote["division_id"] == division_id), None)
 
 
 def slot_name(slot: dict[str, Any], division_id: int | None = None) -> str:
     """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (mSO)`:
-    the winner by its short name, and by its name where it has none."""
+    the winner by its short name, and by its name where it has none.
+    """
     name = f"#{slot['position']} {slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id)
     if winner:
@@ -73,7 +77,8 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
     four divisions in one embed exceed its field limits; otherwise one board.
     Players a division event lists with no division get a board of their own,
     after the divisions, and only when there are any. `podium` swaps the top
-    three ranks for medal emotes and rules a line under them."""
+    three ranks for medal emotes and rules a line under them.
+    """
     groups = {group["group_id"]: group for group in detail["groups"]}
     if scoreboard["group_kind"] == "division" and scoreboard["filter"]["division_id"] is None:
         boards = [
@@ -95,15 +100,14 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
     named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
     title = _title(detail, groups[named]) if named in groups else ""
     return [
-        _board(
-            detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"]
-        )
+        _board(detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"])
     ]
 
 
 def _title(detail: dict[str, Any], group: dict[str, Any]) -> str:
     """The group's short name, or nothing when the group is named after the
-    event and would only repeat it."""
+    event and would only repeat it.
+    """
     name = group["alt_name"] or group["name"]
     return "" if name == event_label(detail) else name
 
@@ -150,9 +154,7 @@ def _board(
     return board
 
 
-def _notes(
-    scoreboard: dict[str, Any], slots: list[dict[str, Any]], timed: bool, division_id: int | None
-) -> list[str]:
+def _notes(scoreboard: dict[str, Any], slots: list[dict[str, Any]], timed: bool, division_id: int | None) -> list[str]:
     notes = []
     if slots:
         notes.append(" · ".join(_slot_heading(slot, division_id) for slot in slots))
@@ -190,7 +192,8 @@ def _total(total: int | None, timed: bool) -> str:
 def _token(result: dict[str, Any], multiplier: int, timed: bool) -> str:
     """One slot's result as a player's line shows it: the score with its
     multiplier, or the time with its loss; a DNF and a missing submission
-    told apart; a time slot nobody has finished left blank."""
+    told apart; a time slot nobody has finished left blank.
+    """
     if timed and not result["open"]:
         return ""
     if not result["submitted"]:

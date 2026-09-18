@@ -1,28 +1,30 @@
-import time
 import asyncio
 import logging
-from datetime import datetime, timezone
+import time
+from datetime import UTC, datetime
+
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+from fzdbot.fzd_api import FzdApi, FzdApiError
+from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
-from fzdbot.fzd_api import FzdApiError
 from fzdbot.utils.event_class import Event, UserRegistrations, UserStats
 from fzdbot.utils.user_utils import default_display_name
-from fzdbot.utils.view_utils import NextStep, DivTeam
+from fzdbot.utils.view_utils import DivTeam, NextStep
 from fzdbot.views.common import SessionView
 from fzdbot.views.register_views import (
     CancelView,
-    LoadView,
-    RegisterMenuView,
-    DivTeamAddView,
-    DivTeamEditView,
     ConfirmView,
     ConfirmWithdrawlView,
+    DivTeamAddView,
+    DivTeamEditView,
     ExitView,
+    LoadView,
+    RegisterMenuView,
 )
-from fzdbot.views.stats_menu_views import StatViewHistoryClassic, BasicStatsView
-
+from fzdbot.views.stats_menu_views import BasicStatsView
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,12 @@ logger = logging.getLogger(__name__)
 
 # Steps that must not be reached before the user's statistics are in hand.
 _STATS_FIRST = frozenset({NextStep.ADD, NextStep.EDIT, NextStep.CONFIRM})
+
+
+def _chosen[T](value: T | None, what: str) -> T:
+    if value is None:
+        raise RuntimeError(f"ggp_register: {what} was not chosen before this step")
+    return value
 
 
 class RegSession:
@@ -48,7 +56,7 @@ class RegSession:
     something, and expire() when the user walks away.
     """
 
-    def __init__(self, interaction: discord.Interaction) -> None:
+    def __init__(self, interaction: discord.Interaction, api: FzdApi) -> None:
         # origin answers "which message am I editing".
         # latest answers "which interaction token may I still use". Each click
         # arrives with a token good for 15 minutes, so holding the newest one is
@@ -56,9 +64,10 @@ class RegSession:
         # command itself.
         self.origin: discord.Interaction = interaction
         self.latest: discord.Interaction = interaction
+        self.api = api
 
         self.current_view: SessionView | None = None
-        self.user: UserRegistrations | None = None
+        self.user = UserRegistrations(interaction)
         self.events: list[Event] = []
         self._prefetch: asyncio.Task | None = None
 
@@ -77,9 +86,9 @@ class RegSession:
         self.self_eval_options: list[dict] = []
 
     @property
-    def api(self):
-        """The bot's API client. `Interaction.client` is the bot."""
-        return self.origin.client.api
+    def event(self) -> Event:
+        """The event being registered for; every step past the menu has one."""
+        return _chosen(self.selected_event, "an event")
 
     #############################################
     # Loading
@@ -115,7 +124,7 @@ class RegSession:
         here counts anything, and the caller's registrations come off the
         same answer rather than a second one.
         """
-        payload = await self.api.registrations(self.origin.user.id, datetime.now(timezone.utc))
+        payload = await self.api.registrations(self.origin.user.id, datetime.now(UTC))
         self.events = [Event.from_api(event) for event in payload]
         self.user = UserRegistrations.from_api(self.origin, payload)
 
@@ -148,10 +157,11 @@ class RegSession:
             # screen that was asked for.
             await self._ack(interaction)
             await self.ready()
-            (self.user_stats, self.recent_options, self.self_eval_options) = await UserStats.load_from_api(
-                self.api, interaction.user.id, self.selected_event.scheduled_event_id
+            stats, self.recent_options, self.self_eval_options = await UserStats.load_from_api(
+                self.api, interaction.user.id, self.event.scheduled_event_id
             )
-            if not self._stats_complete():
+            self.user_stats = stats
+            if not (stats.self_eval_id and stats.most_recent_id):
                 self.pending_step, step = step, NextStep.STATS
 
         elif step is NextStep.CONTINUE:
@@ -179,29 +189,33 @@ class RegSession:
                 return RegisterMenuView(self.events, self.user, notice)
 
             case NextStep.STATS:
-                return await self._stats_view(interaction)
+                await self._ack(interaction)
+                return BasicStatsView(
+                    self.recent_options, self.self_eval_options, _chosen(self.user_stats, "statistics")
+                )
 
             case NextStep.ADD:
-                return DivTeamAddView(self.selected_event)
+                return DivTeamAddView(self.event)
 
             case NextStep.EDIT:
-                self.div_team_id = next(
+                div_team_id = next(
                     reg["div_team_id"]
                     for reg in self.user.registrations
-                    if reg["scheduled_event_id"] == self.selected_event.scheduled_event_id
+                    if reg["scheduled_event_id"] == self.event.scheduled_event_id
                 )
-                return DivTeamEditView(event=self.selected_event, existing_div_team_id=self.div_team_id)
+                self.div_team_id = div_team_id
+                return DivTeamEditView(event=self.event, existing_div_team_id=div_team_id)
 
             case NextStep.CONFIRM:
-                if self.selected_event.has_solo_division and self.new_div_team_id is None:
+                if self.event.has_solo_division and self.new_div_team_id is None:
                     # Nothing to choose: the event has exactly one division.
-                    self.new_div_team_id = self.selected_event.divisions[0].id
-                return ConfirmView(self.selected_event, self.new_div_team_id)
+                    self.new_div_team_id = self.event.divisions[0].id
+                return ConfirmView(self.event, _chosen(self.new_div_team_id, "a group"))
 
             case NextStep.WITHDRAW_CONF:
-                if self.selected_event.has_solo_division and self.div_team_id is None:
-                    self.div_team_id = self.selected_event.divisions[0].id
-                return ConfirmWithdrawlView(self.selected_event, self.div_team_id)
+                if self.event.has_solo_division and self.div_team_id is None:
+                    self.div_team_id = self.event.divisions[0].id
+                return ConfirmWithdrawlView(self.event, _chosen(self.div_team_id, "a group"))
 
             case NextStep.COMMIT_ADD:
                 await self._commit_add(interaction)
@@ -258,10 +272,8 @@ class RegSession:
         if scheduled_event_id is None:
             # The Leave button carries no event.
             return
-        self.selected_event = next(
-            event for event in self.events if event.scheduled_event_id == scheduled_event_id
-        )
-        self.div_team_str = self.selected_event.div_or_team()
+        self.selected_event = next(event for event in self.events if event.scheduled_event_id == scheduled_event_id)
+        self.div_team_str = self.event.div_or_team()
 
     def clear_selection(self) -> None:
         """Reset everything about the registration being worked on.
@@ -275,42 +287,13 @@ class RegSession:
         self.user_stats = None
         self.pending_step = None
 
-    def _stats_view_type(self) -> str:
-        """Which statistics screen this event wants.
-
-        Hard-coded, as before. Becomes self.selected_event.mode once the
-        per-mode screens are finished.
-        """
-        return "basic"
-
-    def _stats_complete(self) -> bool:
-        """Whether the statistics screen has anything left to ask."""
-        if self._stats_view_type() != "basic":
-            return False
-        return bool(self.user_stats.self_eval_id and self.user_stats.most_recent_id)
-
-    async def _stats_view(self, interaction: discord.Interaction) -> SessionView:
-        """The statistics screen, built from options already in hand.
-
-        No "99" screen: it asks about `stats_ggp_99`, and the API serves no
-        endpoint over that table, so there is nothing to build it from.
-        """
-        await self._ack(interaction)
-        match self._stats_view_type():
-            case "classic":
-                return StatViewHistoryClassic(self.user_stats)
-            case "basic":
-                return BasicStatsView(self.recent_options, self.self_eval_options, self.user_stats)
-            case other:
-                raise RuntimeError(f"ggp_register: no stats screen for mode {other!r}")
-
     #############################################
     # Writes
     #############################################
 
     def _div_team_name(self, div_team_id: int) -> str:
         """The name the user saw on the dropdown, for talking back to them."""
-        pool = self.selected_event.divisions or self.selected_event.teams
+        pool = self.event.divisions or self.event.teams
         return next((dt.name for dt in pool if dt.id == div_team_id), str(div_team_id))
 
     async def _commit_add(self, interaction: discord.Interaction) -> None:
@@ -325,6 +308,7 @@ class RegSession:
         cannot already be stale by the time it is read.
         """
         await self._ack(interaction)
+        group_id = _chosen(self.new_div_team_id, "a group")
 
         if self.user_stats is not None:
             saved = await self.user_stats.save_to_api(
@@ -334,7 +318,7 @@ class RegSession:
                 logger.info(
                     "User stats of %s for %s have been saved.",
                     interaction.user.name,
-                    self.selected_event.event_name,
+                    self.event.event_name,
                 )
 
         try:
@@ -342,24 +326,24 @@ class RegSession:
                 interaction.user.id,
                 interaction.user.name,
                 default_display_name(interaction.user),
-                self.selected_event.scheduled_event_id,
-                self.new_div_team_id,
-                datetime.now(timezone.utc),
+                self.event.scheduled_event_id,
+                group_id,
+                datetime.now(UTC),
             )
         except FzdApiError as error:
             if error.status != 409:
                 raise
             self.notice = (
-                f"**{self._div_team_name(self.new_div_team_id)}** filled up while you "
+                f"**{self._div_team_name(group_id)}** filled up while you "
                 f"were choosing, so nothing was registered. "
                 f"Pick another {self.div_team_str}."
             )
             logger.info(
                 "%s not added to %s: %s %s is full",
                 interaction.user.name,
-                self.selected_event.event_name,
+                self.event.event_name,
                 self.div_team_str,
-                self.new_div_team_id,
+                group_id,
             )
             await self._read_registrations()
             return
@@ -367,9 +351,9 @@ class RegSession:
         logger.info(
             "%s added to %s, %s %s",
             interaction.user.name,
-            self.selected_event.event_name,
+            self.event.event_name,
             self.div_team_str,
-            self.new_div_team_id,
+            group_id,
         )
         await self._read_registrations()
 
@@ -380,13 +364,13 @@ class RegSession:
         await self._ack(interaction)
         await self.api.withdraw(
             interaction.user.id,
-            self.selected_event.scheduled_event_id,
-            datetime.now(timezone.utc),
+            self.event.scheduled_event_id,
+            datetime.now(UTC),
         )
         logger.info(
             "%s removed from %s, %s %s",
             interaction.user.name,
-            self.selected_event.event_name,
+            self.event.event_name,
             self.div_team_str,
             self.div_team_id,
         )
@@ -444,8 +428,8 @@ class RegSession:
 
 
 class EventRegister(commands.Cog):
-    def __init__(self, bot: commands.Bot) -> None:
-        self.bot: commands.Bot = bot
+    def __init__(self, bot: FZDBot) -> None:
+        self.bot: FZDBot = bot
 
     """ Commands """
 
@@ -459,7 +443,7 @@ class EventRegister(commands.Cog):
         through RegSession, so this coroutine does not stay alive waiting
         on a user who may never click again.
         """
-        session = RegSession(interaction)
+        session = RegSession(interaction, self.bot.api)
 
         load_view = LoadView()
         # Attach before sending, so there is no window in which a click arrives
@@ -472,7 +456,7 @@ class EventRegister(commands.Cog):
         session.start_prefetch()
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: FZDBot):
     server_id = get_settings().server_id
-    GUILD_ID = discord.Object(id=server_id)
-    await bot.add_cog(EventRegister(bot), guild=GUILD_ID)
+    guild = discord.Object(id=server_id)
+    await bot.add_cog(EventRegister(bot), guild=guild)

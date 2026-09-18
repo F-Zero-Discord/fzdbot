@@ -2,6 +2,7 @@ import logging
 import sys
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,7 +57,7 @@ class Settings(BaseSettings):
         return normalized
 
     @property
-    def db_config(self) -> dict[str, object]:
+    def db_config(self) -> dict[str, Any]:
         return {
             "user": self.db_user,
             "password": self.db_password,
@@ -74,7 +75,8 @@ def use_env(name: str) -> None:
     """Read `.env.<name>` in place of `.env`, not on top of it: a setting the
     named file leaves out fails validation rather than being taken from `.env`.
     pydantic-settings skips an env file that does not exist, so a mistyped
-    name is refused here."""
+    name is refused here.
+    """
     global _env_file
     path = Path(f".env.{name}")
     if not path.is_file():

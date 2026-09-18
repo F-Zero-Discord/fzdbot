@@ -15,7 +15,7 @@ tick does not read again. Stopping a board early is deleting its message.
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import discord
@@ -25,6 +25,7 @@ from discord.ext import commands, tasks
 from fzdbot.error_alerts import send_error_alert
 from fzdbot.formatters import format_discord_timestamp, format_scoreboard_for_discord_embed
 from fzdbot.fzd_api import FzdApiError
+from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label, render_boards
 from fzdbot.settings import get_settings
 
@@ -86,7 +87,7 @@ def _embeds(detail: dict[str, Any], scoreboard: dict[str, Any], *, final: bool =
 
 
 class Scoreboard(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: FZDBot):
         self.bot = bot
         # Both derived from the last tick and disposable: what each live message
         # was last edited to, so an unchanged board costs no edit, and which
@@ -134,7 +135,8 @@ class Scoreboard(commands.Cog):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """The chosen event's divisions or teams; nothing for an ungrouped event
-        or before an event is chosen."""
+        or before an event is chosen.
+        """
         event = str(interaction.namespace.event or "")
         if not event.isdigit():
             return []
@@ -278,11 +280,11 @@ class Scoreboard(commands.Cog):
         self._rendered.pop(message_id, None)
 
     @app_commands.command(name="fzd_show", description="Show most current FZD event scoreboard")
-    async def showScoreboard(self, interaction: discord.Interaction, event_type: str | None = None):
-        logger.debug("[showScoreboard] Invoked by %s with event_type=%s", interaction.user, event_type)
+    async def show_scoreboard(self, interaction: discord.Interaction, event_type: str | None = None):
+        logger.debug("[show_scoreboard] Invoked by %s with event_type=%s", interaction.user, event_type)
         await interaction.response.defer()
         try:
-            eventinfo = await self.bot.api.latest_event(event_type, datetime.now(timezone.utc))
+            eventinfo = await self.bot.api.latest_event(event_type, datetime.now(UTC))
         except FzdApiError as error:
             if error.status != 404:
                 raise
@@ -291,7 +293,7 @@ class Scoreboard(commands.Cog):
         await self._post(interaction, eventinfo["scheduled_event_id"])
 
     async def cog_load(self):
-        self.showScoreboard.autocomplete("event_type")(self.event_type_autocomplete)
+        self.show_scoreboard.autocomplete("event_type")(self.event_type_autocomplete)
         self.setup_scoreboard.autocomplete("event")(self.event_autocomplete)
         self.setup_scoreboard.autocomplete("group")(self.group_autocomplete)
         self.refresh = tasks.loop(seconds=get_settings().scoreboard_refresh_seconds)(self.refresh_boards)
@@ -302,5 +304,5 @@ class Scoreboard(commands.Cog):
         self.refresh.cancel()
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: FZDBot):
     await bot.add_cog(Scoreboard(bot), guild=discord.Object(id=get_settings().server_id))

@@ -1,14 +1,16 @@
+from datetime import datetime
+
 import discord
+
 from fzdbot.utils.event_class import Event, UserRegistrations
 from fzdbot.utils.view_utils import DivTeam, NextStep, discord_timestamp
 
 
 def user_event_status(event: Event, user: UserRegistrations) -> dict:
-    """
-    Structure of user_dict:
+    """Structure of user_dict:
         scheduled_event_id: int,
         type: Literal["division","team"],
-        id: int (either division_id or team_id)
+        id: int (either division_id or team_id).
 
     Structure of output:
         label:
@@ -24,7 +26,6 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
         button_color: str [green, yellow]
         next_step: NextStep [enum]
     """
-    status: dict | None = None
     # Case: user is registered
     #   Note: Present logic allows user to edit a registration after the
     #       registration period closes
@@ -89,26 +90,18 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
         }
         return status
 
-    # Case: user not registered, and registration period has not closed, but event is full
+    # Remaining case: user not registered, registration period has not closed, but event is full
     #   Note: to be modified if waitlist implemented
-    if (
-        (not user.is_registered(event.scheduled_event_id))
-        and (not event.reg_period_closed)
-        and (event.at_capacity)
-    ):
-        status = {
-            "label": "Event Full!",
-            "button_label": "-----",
-            "button_color": discord.ButtonStyle.gray,
-            "button_disabled": True,
-            "next_step": NextStep.NULL,
-        }
-        return status
+    return {
+        "label": "Event Full!",
+        "button_label": "-----",
+        "button_color": discord.ButtonStyle.gray,
+        "button_disabled": True,
+        "next_step": NextStep.NULL,
+    }
 
 
-def registered_summary(
-    events: list[Event], user: UserRegistrations
-) -> list[tuple[Event, DivTeam | None, str | None]]:
+def registered_summary(events: list[Event], user: UserRegistrations) -> list[tuple[Event, DivTeam | None, str | None]]:
     """What the user is signed up for, in the order they will race it.
 
     Built by walking `events` rather than user.registrations, because
@@ -133,9 +126,7 @@ def registered_summary(
             )
             if event.divisions:
                 div_team_str = DivTeam.DIVISION
-                div_team_name = next(
-                    (d.name for d in event.divisions if d.id == registration["div_team_id"]), None
-                )
+                div_team_name = next((d.name for d in event.divisions if d.id == registration["div_team_id"]), None)
             elif event.teams:
                 div_team_str = DivTeam.TEAM
                 div_team_name = next((t.name for t in event.teams if t.id == registration["div_team_id"]), None)
@@ -144,6 +135,5 @@ def registered_summary(
 
     # start_time should always be set, but a missing one must not take the whole
     # exit screen down with a comparison against None: sort it last instead.
-    dated = [row for row in summary if row[0].start_time is not None]
-    undated = [row for row in summary if row[0].start_time is None]
-    return sorted(dated, key=lambda row: row[0].start_time) + undated
+    summary.sort(key=lambda row: (row[0].start_time is None, row[0].start_time or datetime.min))
+    return summary

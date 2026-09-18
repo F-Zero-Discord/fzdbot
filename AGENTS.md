@@ -2,10 +2,9 @@
 
 ## Entry points
 
-- **All code**: `fzdbot/` - Where all the code lives
-- **Application**: `fzdbot/bot.py` — main()
-- **API client**: `fzdbot/fzd_api.py` — how this bot reaches FZD's data
-- **Tests**: `tests/` — `./.venv/bin/pytest -q`; pure functions and the live-board tick against fakes
+- **Code**: `src/fzdbot/` — `main.py` is the application, `fzd_api.py` the API client,
+  `cogs/` the commands.
+- **Tests**: `tests/`
 
 ## Design Philosophy
 
@@ -21,13 +20,10 @@ Rules of thumb:
 - Elegance comes from simplifying logic, not from building complex logic and then adding more complexity to guard it.
 - Keep the repo small. Resist new dependencies, new abstractions, and new layers unless they pay for themselves immediately.
 
-## Day-to-Day Workflow
+## Before finishing
 
-- Sync dependencies with `uv sync --dev`.
-- Prefer repo-local executables under `./.venv/bin/`.
-- Run lint fixes and import sorting with `./.venv/bin/ruff check . --fix`.
-- Run formatting with `./.venv/bin/ruff format .`.
-- Run type checking with `./.venv/bin/pyright`.
+`uv run ruff check . --fix && uv run ruff format . && uv run pyright && uv run pytest -q`.
+Ruff runs repo-wide; keep any unrelated fixes it makes.
 
 ## Tests
 

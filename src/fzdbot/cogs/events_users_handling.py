@@ -1,25 +1,29 @@
 # Miscellaneous bot commands for registering users in the database (/register)
 # or modifying events (/start_event only for now)
 import logging
+
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
 from fzdbot.error_alerts import send_error_alert
-from fzdbot.fzd_api import FzdApiError
-from fzdbot.fzd_db import get_db_connection  # connect_to_database
-from fzdbot.fzd_db import check_for_active_event
-from fzdbot.fzd_db import create_event
-from fzdbot.fzd_db import get_event_schedule
 from fzdbot.formatters import format_events_schedule
-from fzdbot.utils.user_utils import default_display_name
+from fzdbot.fzd_api import FzdApiError
+from fzdbot.fzd_db import (
+    check_for_active_event,
+    create_event,
+    get_db_connection,  # connect_to_database
+    get_event_schedule,
+)
+from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
+from fzdbot.utils.user_utils import default_display_name
 
 logger = logging.getLogger(__name__)
 
 
-class Modify_Events_Users(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+class ModifyEventsUsers(commands.Cog):
+    def __init__(self, bot: FZDBot):
         self.bot = bot
 
     async def event_type_autocomplete(
@@ -28,7 +32,7 @@ class Modify_Events_Users(commands.Cog):
         try:
             event_types = await self.bot.api.event_types()
         except FzdApiError as error:
-            logger.warning("[startEvent] event type autocomplete could not read the API: %s", error)
+            logger.warning("[start_event] event type autocomplete could not read the API: %s", error)
             return []
         event_choices = [
             app_commands.Choice(name=e["name"], value=str(e["event_type_id"]))
@@ -42,16 +46,14 @@ class Modify_Events_Users(commands.Cog):
     @app_commands.command(
         name="fzd_start_event", description="Choose FZD event to start, assuming no other event is ongoing"
     )
-    async def startEvent(self, interaction: discord.Interaction, event: str):
+    async def start_event(self, interaction: discord.Interaction, event: str):
         duration = 2  # duration of event (hours), set constant for now
         opts = []  # list of event names (all valid options)
         try:
             event_types = await self.bot.api.event_types()
             opts = [e["name"] for e in event_types]
             event_name = [e["name"] for e in event_types if e["event_type_id"] == int(event)]  # chosen event name
-            if (
-                not event_name
-            ):  # in the rare case user inputs an integer 'event', and above line returns empty list
+            if not event_name:  # in the rare case user inputs an integer 'event', and above line returns empty list
                 raise IndexError("chosen event not part of list")
 
             async with get_db_connection() as db:
@@ -61,27 +63,25 @@ class Modify_Events_Users(commands.Cog):
                     if match_event["name"] != "NULL":
                         message = f"another event is currently running -- {match_event['name']}"
                         if hour_to_check > 0:
-                            message = f"another event will start within the next {duration} hours -- {match_event['name']}"
+                            message = (
+                                f"another event will start within the next {duration} hours -- {match_event['name']}"
+                            )
                         await interaction.response.send_message(
                             f"⚠️  Warning: Could not start event, {message}", ephemeral=True
                         )
                         return
 
-                # Event is created here
-                current_event = match_event
-                current_event["name"] = event_name[0]
-                current_event["id"] = int(event)
-                await create_event(db, current_event, duration=duration)  # default duration is 2 hours
+                await create_event(db, {"id": int(event)}, duration=duration)
                 await interaction.response.send_message(f"✅ FZD event {event_name[0]} successfully started!")
                 logger.info("User %s started event %s", interaction.user, event_name[0])
 
         except (IndexError, ValueError) as e:
-            logger.warning("[startEvent] exception: %s", e)
+            logger.warning("[start_event] exception: %s", e)
             await interaction.response.send_message(
                 f"❌ ERROR! Must choose from available event options -- {opts}", ephemeral=True
             )
         except Exception as error:
-            logger.exception("[startEvent] Unexpected exception")
+            logger.exception("[start_event] Unexpected exception")
             await send_error_alert(
                 self.bot,
                 where="fzd_start_event",
@@ -95,11 +95,11 @@ class Modify_Events_Users(commands.Cog):
 
     async def cog_load(self):
         # Bind autocomplete handler properly
-        self.startEvent.autocomplete("event")(self.event_type_autocomplete)
+        self.start_event.autocomplete("event")(self.event_type_autocomplete)
 
     # This command registers a user into the database
     @app_commands.command(name="fzd_set_name", description="Register your discord id to FZD scoreboard database")
-    async def registerUser(self, interaction: discord.Interaction, display_name: str):
+    async def register_user(self, interaction: discord.Interaction, display_name: str):
         warning = ""
         if display_name is None:
             display_name = default_display_name(interaction.user)
@@ -117,12 +117,12 @@ class Modify_Events_Users(commands.Cog):
             logger.info("User %s set display name to %s", interaction.user, display_name)
         except FzdApiError as error:
             await interaction.followup.send(f"{warning}❌ ERROR! {error}", ephemeral=True)
-            logger.warning("[registerUser] API error: %s", error)
+            logger.warning("[register_user] API error: %s", error)
         except Exception as error:
             await interaction.followup.send(
                 f"{warning}❌ ERROR! Something went wrong, please contact FZD staff to address!", ephemeral=True
             )
-            logger.exception("[registerUser] Exception occurred in fzd_register")
+            logger.exception("[register_user] Exception occurred in fzd_register")
             await send_error_alert(
                 self.bot,
                 where="fzd_register",
@@ -139,7 +139,7 @@ class Modify_Events_Users(commands.Cog):
     #    print(f"Command with delay={delay} done after {end - start:.1f}s")
 
     @app_commands.command(name="fzd_events_schedule", description="View upcoming FZD events schedule")
-    async def viewSchedule(self, interaction: discord.Interaction):
+    async def view_schedule(self, interaction: discord.Interaction):
         try:
             async with get_db_connection() as db:
                 events = await get_event_schedule(db)
@@ -154,7 +154,7 @@ class Modify_Events_Users(commands.Cog):
             await interaction.response.send_message(
                 "❌ ERROR! Something went wrong, please contact FZD staff to address!", ephemeral=True
             )
-            logger.exception("[viewSchedule] Exception occurred in fzd_events_schedule")
+            logger.exception("[view_schedule] Exception occurred in fzd_events_schedule")
             await send_error_alert(
                 self.bot,
                 where="fzd_events_schedule",
@@ -163,7 +163,7 @@ class Modify_Events_Users(commands.Cog):
             )
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: FZDBot):
     settings = get_settings()
-    GUILD_ID = discord.Object(id=settings.server_id)
-    await bot.add_cog(Modify_Events_Users(bot), guild=GUILD_ID)
+    guild = discord.Object(id=settings.server_id)
+    await bot.add_cog(ModifyEventsUsers(bot), guild=guild)

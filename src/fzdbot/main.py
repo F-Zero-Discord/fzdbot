@@ -19,9 +19,7 @@ class FZDBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self.tree.on_error = self.on_app_command_error
 
-    async def on_app_command_error(
-        self, interaction: discord.Interaction, error: app_commands.AppCommandError
-    ) -> None:
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         original_error = getattr(error, "original", error)
         logger.error(
             "Unhandled app command error for command=%s user=%s",

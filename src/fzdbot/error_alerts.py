@@ -2,7 +2,6 @@ import logging
 from collections.abc import Mapping
 
 import discord
-from discord.ext import commands
 
 from fzdbot.settings import get_settings
 
@@ -54,7 +53,7 @@ def _build_error_alert_message(
 
 
 async def send_error_alert(
-    bot: commands.Bot,
+    bot: discord.Client,
     *,
     where: str,
     error: BaseException,
@@ -73,6 +72,9 @@ async def send_error_alert(
         except discord.DiscordException:
             logger.exception("Failed to fetch configured error alert channel %s", channel_id)
             return
+    if not isinstance(channel, discord.abc.Messageable):
+        logger.error("Error alert channel %s is a %s, which takes no message", channel_id, type(channel).__name__)
+        return
 
     try:
         await channel.send(
