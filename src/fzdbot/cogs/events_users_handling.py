@@ -8,7 +8,6 @@ from discord import app_commands
 from fzdbot.error_alerts import send_error_alert
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.fzd_db import get_db_connection  # connect_to_database
-from fzdbot.fzd_db import get_event_types
 from fzdbot.fzd_db import check_for_active_event
 from fzdbot.fzd_db import create_event
 from fzdbot.fzd_db import get_event_schedule
@@ -26,9 +25,14 @@ class Modify_Events_Users(commands.Cog):
     async def event_type_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
+        try:
+            event_types = await self.bot.api.event_types()
+        except FzdApiError as error:
+            logger.warning("[startEvent] event type autocomplete could not read the API: %s", error)
+            return []
         event_choices = [
-            app_commands.Choice(name=e["name"], value=str(e["id"]))
-            for e in self.recurring_events
+            app_commands.Choice(name=e["name"], value=str(e["event_type_id"]))
+            for e in event_types
             if current.lower() in e["name"].lower()
         ]
 
@@ -40,11 +44,11 @@ class Modify_Events_Users(commands.Cog):
     )
     async def startEvent(self, interaction: discord.Interaction, event: str):
         duration = 2  # duration of event (hours), set constant for now
-        opts = [
-            s["name"] for s in self.recurring_events if "name" in s
-        ]  # list of event names (all valid options)
+        opts = []  # list of event names (all valid options)
         try:
-            event_name = [e["name"] for e in self.recurring_events if e["id"] == int(event)]  # chosen event name
+            event_types = await self.bot.api.event_types()
+            opts = [e["name"] for e in event_types]
+            event_name = [e["name"] for e in event_types if e["event_type_id"] == int(event)]  # chosen event name
             if (
                 not event_name
             ):  # in the rare case user inputs an integer 'event', and above line returns empty list
@@ -92,8 +96,6 @@ class Modify_Events_Users(commands.Cog):
     async def cog_load(self):
         # Bind autocomplete handler properly
         self.startEvent.autocomplete("event")(self.event_type_autocomplete)
-        async with get_db_connection() as db:
-            self.recurring_events = await get_event_types(db)
 
     # This command registers a user into the database
     @app_commands.command(name="fzd_set_name", description="Register your discord id to FZD scoreboard database")

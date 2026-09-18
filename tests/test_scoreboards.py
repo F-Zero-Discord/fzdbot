@@ -8,6 +8,7 @@ def slot(slot_id, position, short, multiplier=1):
         "lineup_short_name": short,
         "multiplier": multiplier,
         "vote_winner": None,
+        "vote_winners": [],
     }
 
 

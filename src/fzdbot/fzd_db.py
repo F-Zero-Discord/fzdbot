@@ -111,14 +111,6 @@ async def execute_query(conn, query, params=None, fetch="all", isProc: bool = Fa
             raise
 
 
-async def get_event_types(db):
-    """Get event types and ids of recurring events from 'events' table"""
-    sql_gettypes = "SELECT id, name FROM events"  # WHERE recurring = 1"
-    eventtypes = await execute_query(db, sql_gettypes, fetch="all")
-
-    return eventtypes  # [{'id': 7, 'name': 'Weekly Classic Mini'} . . .
-
-
 async def create_event(db, event, duration: int = 2) -> None:
     """Inserts new event into the 'events_scheduled' database
     duration is optional variable to set how long the event window is (2 hours by default)

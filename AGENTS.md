@@ -36,13 +36,13 @@ There are currently no tests, and you will not make any, unless explicitly make 
 
 ## Where the data comes from
 
-**Ten of the twelve commands read and write through the FZD API, not the database.**
+**Eleven of the thirteen commands read and write through the FZD API, not the database.**
 `fzd_api.py` is the whole client: one `aiohttp` session, an `X-API-Key` header,
 and `FzdApiError` carrying the HTTP status. `bot.api` holds it, so a cog reaches
 it as `self.bot.api` and a registration session as `interaction.client.api`.
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required at startup**. There is no
-fallback to the database: a missing key stops the bot rather than letting nine
+fallback to the database: a missing key stops the bot rather than letting eleven
 commands fail one at a time. One key per environment, minted by the API's
 `api-key-new`.
 
@@ -70,6 +70,23 @@ open, whether the slot takes a score or a time, the bounds, and whether a
 machine must be named are the API's rules, and its refusal is what the user
 reads. A second submission to a slot replaces the first; there is no edit.
 
+**`/set_vote` records which track a lobby voted in on a race slot.**
+`cogs/votes.py` offers the race slots of the running events, then the chosen
+slot's own `tracks` — or `GET /v1/tracks` where the slot's lineup names none,
+since such a slot takes any track — and the event's divisions where it has
+them. A lobby is a division, or the whole event where it has none, so two
+divisions hold two winners on one slot. The write is one `PUT` carrying the
+interaction's user as who recorded it, and a second one for the same lobby
+replaces the first. Who may run it is set on the command in Discord's
+integration settings; nothing here checks a role, so until that is set anybody
+may run it. A track is labelled
+`mirror Big Blue (mBB)`, type in words and then the short name, because the name alone is shared by a standard, a mirror and
+a classic track. Once recorded, the submission picker says
+`for mirror Sand Ocean (mSO)` and a board heads the slot `#3 99 (SO)`, each for the
+lobby in question: the picker reads the player's group from
+`GET /v1/players/{id}/registrations`, and only when some slot holds a
+division's vote, and a board per division reads its own division's.
+
 **`/setup_scoreboard` and `/fzd_show` post a board from two reads.**
 `GET /v1/events/{id}` says what the board is — `group_kind`, the groups, the
 slots with their multipliers, the mulligans and the time cap — and
@@ -83,8 +100,9 @@ with the loss to the slot's leader as `+s.cc`, `DNF` and `—` (not entered)
 told apart, and an unopened time slot left blank. Nothing here sums, ranks or
 names an event. `/setup_scoreboard` offers GGP8's events and whatever is
 running, and a chosen event's groups; the post is a snapshot and does not
-update, which its description says. `/fzd_show` takes the latest event of a
-type and posts it whole.
+update, which its description says. `/fzd_show` is the weeklies' command: it
+offers `GET /v1/event-types?recurring=true`, read per interaction, takes the
+latest event of the chosen type and posts it whole.
 
 **A player is named by their Discord id.** Every API path takes the snowflake,
 and `users.id` appears nowhere in this repo — nothing here resolves an account,
@@ -93,10 +111,11 @@ the request also carries `discord_user_name` and a `tag`
 (`utils/user_utils.default_display_name`, `display_name` truncated to 10).
 
 **`fzd_db.py` remains, and only for `/fzd_start_event` and
-`/fzd_events_schedule`** — plus `get_event_types`, which those two share with
-`/fzd_show`'s event-type autocomplete. It holds the pool, `execute_query`, and
-those four queries; no SQL in this repo names `users`,
-`event_result_points`, `user_divisions`, `user_teams`,
+`/fzd_events_schedule`**, both in `cogs/events_users_handling.py`. It holds
+the pool, `execute_query`, and their three queries
+(`check_for_active_event`, `create_event`, `get_event_schedule`); the event
+types `/fzd_start_event` offers come from `GET /v1/event-types`. No SQL in this
+repo names `users`, `event_result_points`, `user_divisions`, `user_teams`,
 `event_registration_log`, `user_stats`, `divisions` or `teams`.
 
 **The API answers a composite read once.** `/ggp_register` asks
@@ -106,6 +125,15 @@ capacity and headcount, and the caller's own registration in one payload;
 it. Nothing in this repo counts a registration or checks a capacity: the API
 counts inside the write and answers 409, which is the only answer that cannot
 already be stale by the time it is read.
+
+**A cache is something to report, not to build on.** Commands read the API per
+interaction and the bot holds no state between them. If you find a cache in this
+repo or on a branch being harvested — a module or class-level dict of options
+or event config, a TTL, a list loaded once in `cog_load` — tell the user where
+it is and what reads it, and ask whether it should be removed. Do not extend
+it, tune it or validate input against it, and do not add one. `get_settings`'s
+`lru_cache` in `settings.py` is configuration read once, not data: leave it and
+do not ask about it.
 
 **Instants from the API are stored naive UTC.** `datetime.now()` and
 `datetime.timestamp()` both read a naive datetime as local time, and
@@ -158,7 +186,7 @@ FZD_API_KEY=...                   # ssh fzd 'sudo cat /etc/fzd-api/issued/stage-
 ```
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
-run that forgets them stops at startup rather than failing ten commands one at a
+run that forgets them stops at startup rather than failing eleven commands one at a
 time. `DB_NAME` moves with them: `/fzd_start_event` and `/fzd_events_schedule`
 still use the pool, and pointing the API at stage while the pool wrote elsewhere
 would split one command's effects across two schemas.

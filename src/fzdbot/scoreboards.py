@@ -29,11 +29,31 @@ def event_label(event: dict[str, Any]) -> str:
     return event["display_name"] or event["event"]
 
 
-def slot_name(slot: dict[str, Any]) -> str:
-    """`#1 Knight`, or for a race slot with its vote in, `#3 99 (Sand Ocean)`."""
+def track_label(track: dict[str, Any]) -> str:
+    """`mirror Big Blue (mBB)`, `Big Blue (BB)`. A name is shared by a standard,
+    a mirror and a classic track, so the type is said wherever it is not
+    standard, in words and again as the short name where the track has one.
+    Takes a slot's track, a `/v1/tracks` row or a vote winner."""
+    name = track.get("track_name") or track["name"]
+    kind = track.get("track_type") or track["type"]
+    short_name = track.get("track_short_name") or track.get("short_name")
+    label = name if kind == "standard" else f"{kind} {name}"
+    return f"{label} ({short_name})" if short_name else label
+
+
+def vote_winner(slot: dict[str, Any], division_id: int | None = None) -> dict[str, Any] | None:
+    """The track one lobby voted in on a race slot. A lobby is a division, and
+    `None` is the one lobby of an event that has no divisions."""
+    return next((vote for vote in slot["vote_winners"] if vote["division_id"] == division_id), None)
+
+
+def slot_name(slot: dict[str, Any], division_id: int | None = None) -> str:
+    """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (mSO)`:
+    the winner by its short name, and by its name where it has none."""
     name = f"#{slot['position']} {slot['lineup_short_name']}"
-    if slot["vote_winner"]:
-        name += f" ({slot['vote_winner']['track_name']})"
+    winner = vote_winner(slot, division_id)
+    if winner:
+        name += f" ({winner['track_short_name'] or winner['track_name']})"
     return name
 
 
@@ -63,6 +83,7 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
                 _title(detail, group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
+                division_id=group_id,
             )
             for group_id, group in groups.items()
         ]
@@ -73,7 +94,11 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
 
     named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
     title = _title(detail, groups[named]) if named in groups else ""
-    return [_board(detail, scoreboard, title, scoreboard["rows"], podium)]
+    return [
+        _board(
+            detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"]
+        )
+    ]
 
 
 def _title(detail: dict[str, Any], group: dict[str, Any]) -> str:
@@ -84,12 +109,18 @@ def _title(detail: dict[str, Any], group: dict[str, Any]) -> str:
 
 
 def _board(
-    detail: dict[str, Any], scoreboard: dict[str, Any], title: str, rows: list[dict[str, Any]], podium: bool
+    detail: dict[str, Any],
+    scoreboard: dict[str, Any],
+    title: str,
+    rows: list[dict[str, Any]],
+    podium: bool,
+    division_id: int | None = None,
 ) -> Board:
+    """`division_id` is the lobby whose vote winners head the race slots."""
     timed = scoreboard["scoring_method"] == "time"
     slots = detail["slots"]
     multipliers = {slot["slot_id"]: slot["multiplier"] for slot in slots}
-    board = Board(title, notes=_notes(scoreboard, slots, timed))
+    board = Board(title, notes=_notes(scoreboard, slots, timed, division_id))
     if not rows:
         return board
 
@@ -119,10 +150,12 @@ def _board(
     return board
 
 
-def _notes(scoreboard: dict[str, Any], slots: list[dict[str, Any]], timed: bool) -> list[str]:
+def _notes(
+    scoreboard: dict[str, Any], slots: list[dict[str, Any]], timed: bool, division_id: int | None
+) -> list[str]:
     notes = []
     if slots:
-        notes.append(" · ".join(_slot_heading(slot) for slot in slots))
+        notes.append(" · ".join(_slot_heading(slot, division_id) for slot in slots))
     if timed:
         cap = scoreboard["max_time_loss_cs"]
         capped = f"; {DNF} and {NOT_ENTERED} count {format_loss(cap)}" if cap is not None else ""
@@ -134,8 +167,8 @@ def _notes(scoreboard: dict[str, Any], slots: list[dict[str, Any]], timed: bool)
     return notes
 
 
-def _slot_heading(slot: dict[str, Any]) -> str:
-    name = slot_name(slot)
+def _slot_heading(slot: dict[str, Any], division_id: int | None) -> str:
+    name = slot_name(slot, division_id)
     return f"{name} ×{slot['multiplier']}" if slot["multiplier"] != 1 else name
 
 

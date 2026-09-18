@@ -17,7 +17,6 @@ from discord.ext import commands
 
 from fzdbot.formatters import format_discord_timestamp, format_scoreboard_for_discord_embed
 from fzdbot.fzd_api import FzdApiError
-from fzdbot.fzd_db import get_db_connection, get_event_types
 from fzdbot.scoreboards import event_label, render_boards
 from fzdbot.settings import get_settings
 
@@ -69,13 +68,19 @@ class Scoreboard(commands.Cog):
     async def event_type_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        event_choices = [
-            app_commands.Choice(name=e["name"], value=str(e["id"]))
-            for e in self.recurring_events
-            if current.lower() in e["name"].lower()
+        """The weeklies, read per interaction so a new one needs no restart."""
+        try:
+            event_types = await self.bot.api.event_types(recurring=True)
+        except FzdApiError as error:
+            logger.warning("[fzd_show] event type autocomplete could not read the API: %s", error)
+            return []
+        needle = current.casefold()
+        choices = [
+            app_commands.Choice(name=event_type["name"], value=str(event_type["event_type_id"]))
+            for event_type in event_types
+            if needle in event_type["name"].casefold()
         ]
-
-        return event_choices[:MAX_CHOICES]
+        return choices[:MAX_CHOICES]
 
     async def event_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -170,8 +175,6 @@ class Scoreboard(commands.Cog):
         self.showScoreboard.autocomplete("event_type")(self.event_type_autocomplete)
         self.setup_scoreboard.autocomplete("event")(self.event_autocomplete)
         self.setup_scoreboard.autocomplete("group")(self.group_autocomplete)
-        async with get_db_connection() as db:
-            self.recurring_events = await get_event_types(db)
 
 
 async def setup(bot: commands.Bot):

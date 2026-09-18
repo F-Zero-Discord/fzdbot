@@ -56,8 +56,9 @@ class FzdApi:
 
     async def schedule(self, scheduled_event_id: int) -> list[dict[str, Any]]:
         """The event's slots in schedule order, each with its lineup, mode and
-        start, and the vote winner where one is known. Empty when none are
-        entered, which is an event that cannot take a result."""
+        start, its lineup's `tracks`, and `vote_winners`, one per lobby whose
+        vote is recorded. Empty when none are entered, which is an event that
+        cannot take a result."""
         return await self._request("GET", f"/v1/events/{scheduled_event_id}/schedule")
 
     async def set_score(
@@ -127,6 +128,32 @@ class FzdApi:
         else:
             body[field] = amount
         return body
+
+    async def set_vote(
+        self,
+        recorded_by_discord_user_id: int,
+        recorded_by_discord_user_name: str,
+        scheduled_event_id: int,
+        slot_id: int,
+        track_id: int,
+        division_id: int | None,
+    ) -> dict[str, Any]:
+        """Set the track one lobby voted in on a race slot; a second call for
+        the same lobby replaces the first. `division_id` names the lobby on an
+        event with divisions and is `None` on one without. Answers the slot."""
+        return await self._request(
+            "PUT",
+            f"/v1/events/{scheduled_event_id}/slots/{slot_id}/vote",
+            json={
+                "track_id": track_id,
+                "division_id": division_id,
+                "recorded_by_discord_user_id": str(recorded_by_discord_user_id),
+                "recorded_by_discord_user_name": recorded_by_discord_user_name,
+            },
+        )
+
+    async def tracks(self) -> list[dict[str, Any]]:
+        return await self._request("GET", "/v1/tracks")
 
     async def machines(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/v1/machines")

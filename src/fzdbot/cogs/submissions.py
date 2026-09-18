@@ -21,7 +21,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from fzdbot.fzd_api import FzdApiError
-from fzdbot.scoreboards import event_label, format_time, slot_name
+from fzdbot.scoreboards import event_label, format_time, slot_name, track_label, vote_winner
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -62,14 +62,19 @@ def parse_time(text: str) -> int | None:
     return (minutes * 60 + seconds) * 100 + centiseconds
 
 
-def _choice_name(event: dict[str, Any], slot: dict[str, Any]) -> str:
+def _choice_name(event: dict[str, Any], slot: dict[str, Any], division_id: int | None) -> str:
+    """`Friday EU #3 99 for mirror Sand Ocean (mSO)` once the player's lobby has voted.
+    `division_id` is the group the player holds in the event, which names a
+    lobby only where the event has divisions; anywhere else the event has one
+    lobby, and its vote is the one shown."""
     name = f"{event_label(event)} #{slot['position']} {slot['lineup_short_name']}"
-    if slot["vote_winner"]:
-        name += f" for {slot['vote_winner']['track_name']}"
+    winner = vote_winner(slot, division_id) or vote_winner(slot)
+    if winner:
+        name += f" for {track_label(winner)}"
     return name[:MAX_CHOICE_NAME]
 
 
-def _recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
+def recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
     """Sort key: the slot that started most recently first, then the ones still
     to come soonest first, then the ones with no start entered."""
     if slot["starts_at"] is None:
@@ -103,20 +108,43 @@ class Submissions(commands.Cog):
         now = datetime.now(timezone.utc)
         slots = sorted(
             ((event, slot) for event, schedule in zip(events, schedules) for slot in schedule),
-            key=lambda pair: _recency(pair[1], now),
+            key=lambda pair: recency(pair[1], now),
         )
         if not slots:
             return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
 
+        groups = await self._groups(interaction.user.id, schedules, now)
         needle = current.casefold()
-        choices = [
-            app_commands.Choice(
-                name=_choice_name(event, slot), value=f"{event['scheduled_event_id']}:{slot['slot_id']}"
-            )
+        named = [
+            (_choice_name(event, slot, groups.get(event["scheduled_event_id"])), event, slot)
             for event, slot in slots
-            if needle in _choice_name(event, slot).casefold()
+        ]
+        choices = [
+            app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
+            for name, event, slot in named
+            if needle in name.casefold()
         ]
         return choices[:MAX_CHOICES]
+
+    async def _groups(
+        self, discord_user_id: int, schedules: list[list[dict[str, Any]]], now: datetime
+    ) -> dict[int, int]:
+        """The group this player holds in each event, by event id. Read only
+        when some slot holds a division's vote, which is the one thing here
+        that depends on who is asking; a failed read shows the slots unlabelled."""
+        votes = (vote for schedule in schedules for slot in schedule for vote in slot["vote_winners"])
+        if all(vote["division_id"] is None for vote in votes):
+            return {}
+        try:
+            registrations = await self.bot.api.registrations(discord_user_id, now)
+        except FzdApiError as error:
+            logger.warning("[submissions] slot autocomplete could not read registrations: %s", error)
+            return {}
+        return {
+            event["scheduled_event_id"]: event["your_registration"]["group_id"]
+            for event in registrations
+            if event["your_registration"]
+        }
 
     async def machine_autocomplete(
         self, interaction: discord.Interaction, current: str
