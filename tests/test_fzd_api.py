@@ -117,13 +117,15 @@ def test_schedule_request():
 
 def test_machine_and_active_event_requests():
     async def run():
-        client, session = client_with(Response(200, []), Response(200, []))
+        client, session = client_with(Response(200, []), Response(200, []), Response(200, []))
 
         assert await client.machines() == []
         assert await client.active_events() == []
+        assert await client.player_results(123456789012345678, 14) == []
         assert [call[:3] for call in session.calls] == [
             ("GET", "https://api.example.test/v1/machines", None),
             ("GET", "https://api.example.test/v1/events/active", None),
+            ("GET", "https://api.example.test/v1/players/123456789012345678/results?scheduled_event_id=14", None),
         ]
 
     asyncio.run(run())

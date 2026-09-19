@@ -89,6 +89,17 @@ def recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
     return (1, (starts_at - now).total_seconds())
 
 
+async def refuse(interaction: discord.Interaction, sentence: str) -> None:
+    """Ephemeral either way. Once the public deferral is out, its placeholder
+    is removed first, so the channel never shows a refusal.
+    """
+    if interaction.response.is_done():
+        await interaction.delete_original_response()
+        await interaction.followup.send(sentence, ephemeral=True)
+    else:
+        await interaction.response.send_message(sentence, ephemeral=True)
+
+
 class Submissions(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
@@ -200,17 +211,6 @@ class Submissions(commands.Cog):
         where = await self._describe(scheduled_event_id, slot_id)
         await interaction.followup.send(f"✅ User {interaction.user.display_name} has {did} for {where}.")
 
-    @staticmethod
-    async def _refuse(interaction: discord.Interaction, sentence: str) -> None:
-        """Ephemeral either way. Once the public deferral is out, its placeholder
-        is removed first, so the channel never shows a refusal.
-        """
-        if interaction.response.is_done():
-            await interaction.delete_original_response()
-            await interaction.followup.send(sentence, ephemeral=True)
-        else:
-            await interaction.response.send_message(sentence, ephemeral=True)
-
     async def _slot_ids(self, interaction: discord.Interaction, slot: str) -> tuple[int, int] | None:
         """The event and slot ids a choice carries, or `None` after telling the
         user why there is nothing to submit to.
@@ -224,7 +224,7 @@ class Submissions(commands.Cog):
             sentence = "The running event has no schedule entered, so it cannot take results. Tell FZD staff."
         else:
             sentence = "Pick a slot from the list."
-        await self._refuse(interaction, sentence)
+        await refuse(interaction, sentence)
         return None
 
     @app_commands.command(name="submit_score", description="Set your score for a slot of the running event")
@@ -239,7 +239,7 @@ class Submissions(commands.Cog):
         try:
             points = parse_score(score)
         except ValueError:
-            await self._refuse(interaction, f"Enter your score as a whole number, like 87, or `{DNF}`.")
+            await refuse(interaction, f"Enter your score as a whole number, like 87, or `{DNF}`.")
             return
         ids = await self._slot_ids(interaction, slot)
         if ids is None:
@@ -259,11 +259,11 @@ class Submissions(commands.Cog):
                 datetime.now(UTC),
             )
         except ValueError:
-            await self._refuse(interaction, "Pick a machine from the list.")
+            await refuse(interaction, "Pick a machine from the list.")
             return
         except FzdApiError as error:
             logger.warning("[submissions] set_score refused for user=%s: %s", interaction.user, error)
-            await self._refuse(interaction, error.refusal())
+            await refuse(interaction, error.refusal())
             return
 
         did = "set DNF" if points is None else f"set a score of {points}"
@@ -288,7 +288,7 @@ class Submissions(commands.Cog):
         try:
             time_cs = parse_time(time)
         except ValueError:
-            await self._refuse(
+            await refuse(
                 interaction,
                 f"Enter your time as minutes, seconds and centiseconds, like `{TIME_EXAMPLE}`, or `{DNF}`.",
             )
@@ -311,11 +311,11 @@ class Submissions(commands.Cog):
                 datetime.now(UTC),
             )
         except ValueError:
-            await self._refuse(interaction, "Pick a machine from the list.")
+            await refuse(interaction, "Pick a machine from the list.")
             return
         except FzdApiError as error:
             logger.warning("[submissions] set_time refused for user=%s: %s", interaction.user, error)
-            await self._refuse(interaction, error.refusal())
+            await refuse(interaction, error.refusal())
             return
 
         did = "set DNF" if time_cs is None else f"set a time of {format_time(time_cs)}"
@@ -341,7 +341,7 @@ class Submissions(commands.Cog):
             await self.bot.api.delete_result(interaction.user.id, scheduled_event_id, slot_id, datetime.now(UTC))
         except FzdApiError as error:
             logger.warning("[submissions] delete_result refused for user=%s: %s", interaction.user, error)
-            await self._refuse(interaction, error.refusal())
+            await refuse(interaction, error.refusal())
             return
 
         await self._confirm(interaction, scheduled_event_id, slot_id, "removed their submission")

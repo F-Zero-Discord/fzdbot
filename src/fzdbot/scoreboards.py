@@ -85,7 +85,7 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
             _board(
                 detail,
                 scoreboard,
-                _title(detail, group),
+                _title(group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
                 division_id=group_id,
@@ -98,18 +98,14 @@ def render_boards(detail: dict[str, Any], scoreboard: dict[str, Any], *, podium:
         return boards
 
     named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
-    title = _title(detail, groups[named]) if named in groups else ""
+    title = _title(groups[named]) if named in groups else ""
     return [
         _board(detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"])
     ]
 
 
-def _title(detail: dict[str, Any], group: dict[str, Any]) -> str:
-    """The group's short name, or nothing when the group is named after the
-    event and would only repeat it.
-    """
-    name = group["alt_name"] or group["name"]
-    return "" if name == event_label(detail) else name
+def _title(group: dict[str, Any]) -> str:
+    return group["alt_name"] or group["name"]
 
 
 def _board(

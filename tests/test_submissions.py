@@ -1,5 +1,8 @@
+from datetime import UTC, datetime
+
 import pytest
 
+from fzdbot.cogs.ggp_submissions import active_slot
 from fzdbot.cogs.submissions import format_time, parse_score, parse_time
 
 
@@ -37,3 +40,31 @@ def test_a_score_is_a_whole_number():
         parse_score("87.5")
     with pytest.raises(ValueError):
         parse_score("lots")
+
+
+def slot(slot_id, starts_at):
+    return {"slot_id": slot_id, "starts_at": starts_at}
+
+
+NOW = datetime(2026, 9, 25, 20, 10, tzinfo=UTC)
+
+
+def test_the_active_slot_is_the_one_that_started_last():
+    schedule = [slot(1, "2026-09-25T19:50:00Z"), slot(2, "2026-09-25T20:00:00Z"), slot(3, "2026-09-25T20:20:00Z")]
+    assert active_slot(schedule, NOW) == schedule[1]
+
+
+def test_a_slot_starting_now_is_already_active():
+    schedule = [slot(1, "2026-09-25T20:00:00Z"), slot(2, "2026-09-25T20:10:00Z")]
+    assert active_slot(schedule, NOW) == schedule[1]
+
+
+def test_a_slot_with_no_start_is_never_active():
+    schedule = [slot(1, "2026-09-25T20:00:00Z"), slot(2, None)]
+    assert active_slot(schedule, NOW) == schedule[0]
+    assert active_slot([slot(2, None)], NOW) is None
+
+
+def test_nothing_is_active_before_the_first_slot_or_on_an_empty_schedule():
+    assert active_slot([slot(1, "2026-09-25T20:20:00Z")], NOW) is None
+    assert active_slot([], NOW) is None

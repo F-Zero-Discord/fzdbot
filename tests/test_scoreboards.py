@@ -180,10 +180,10 @@ def test_team_event_ranks_teams_above_individuals():
     ]
 
 
-def test_a_group_named_after_the_event_adds_nothing_to_the_title():
+def test_a_narrowed_board_is_titled_by_its_group():
     groups = [{"group_id": 25, "name": "Ashes", "alt_name": None, "emote": None, "display_order": 1}]
     d = detail(group_kind="division", groups=groups)
-    assert [b.title for b in render_boards(d, scoreboard(d, [], division_id=25))] == [""]
+    assert [b.title for b in render_boards(d, scoreboard(d, [], division_id=25))] == ["Ashes"]
 
 
 def test_weekly_with_no_slots_shows_totals_only():

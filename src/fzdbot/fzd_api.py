@@ -163,6 +163,17 @@ class FzdApi:
     async def machines(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/v1/machines")
 
+    async def player_results(self, discord_user_id: int, scheduled_event_id: int) -> list[dict[str, Any]]:
+        """The player's own results on the event, one per slot they have set,
+        in position order: `slot_id`, `position`, `score`, `time_cs`,
+        `machine_id`, `machine` and `modified_dt`. A submitted DNF is a row
+        whose value is `None`. Empty for a player who has set nothing; 404 for
+        an unknown event.
+        """
+        return await self._request(
+            "GET", f"/v1/players/{discord_user_id}/results?scheduled_event_id={scheduled_event_id}"
+        )
+
     async def active_events(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/v1/events/active")
 

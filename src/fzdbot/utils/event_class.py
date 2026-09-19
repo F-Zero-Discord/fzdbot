@@ -138,6 +138,9 @@ class Event:
 
     @property
     def has_solo_division(self) -> bool:
+        """A single division is a registration with no choice to make: the
+        screens skip the picker and name no division.
+        """
         if self.divisions and self.teams:
             raise ValueError("An event can have teams or divisions, but not both.")
         return len(self.divisions) == 1
@@ -159,8 +162,7 @@ class Event:
                     event_string += "**Teams:**\n"
                     for team in self.teams:
                         event_string += f"{team:detail}"
-                # Assume that if only division has same name as event that it is silent division
-                if len(self.divisions) > 1 and self.divisions[0].name != self.event_name:
+                if self.divisions and not self.has_solo_division:
                     event_string += "**Divisions:**\n"
                     for division in self.divisions:
                         event_string += f"{division:detail}"

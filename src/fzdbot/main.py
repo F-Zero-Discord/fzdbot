@@ -52,6 +52,7 @@ class FZDBot(commands.Bot):
             self.db_pool = await init_db_pool()
             await self.load_extension("fzdbot.cogs.show_scoreboard")
             await self.load_extension("fzdbot.cogs.submissions")
+            await self.load_extension("fzdbot.cogs.ggp_submissions")
             await self.load_extension("fzdbot.cogs.votes")
             await self.load_extension("fzdbot.cogs.events_users_handling")
             await self.load_extension("fzdbot.cogs.event_register")

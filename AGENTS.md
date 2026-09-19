@@ -71,14 +71,14 @@ a bot.
 
 ## Where the data comes from
 
-**Eleven of the thirteen commands read and write through the FZD API, not the database.**
+**Every command but two reads and writes through the FZD API, not the database.**
 `fzd_api.py` is the whole client: one `aiohttp` session, an `X-API-Key` header,
 and `FzdApiError` carrying the HTTP status. `bot.api` holds it, so a cog reaches
 it as `self.bot.api` and a registration session as `interaction.client.api`.
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required at startup**. There is no
-fallback to the database: a missing key stops the bot rather than letting eleven
-commands fail one at a time. One key per environment, minted by the API's
+fallback to the database: a missing key stops the bot rather than letting every
+command fail one at a time. One key per environment, minted by the API's
 `api-key-new`.
 
 **`/ggp8_rivals`, `/ggp8_rivals_delete` and `/ggp8_rivals_show` hold nothing.** `cogs/ggp8_rivals.py`
@@ -105,6 +105,20 @@ open, whether the slot takes a score or a time, the bounds, and whether a
 machine must be named are the API's rules, and its refusal is what the user
 reads. A second submission to a slot replaces the first; there is no edit.
 
+**`/ggp_submit_score` and `/ggp_submit_time` set a result on the slot the clock
+names.** `cogs/ggp_submissions.py` takes a value and a machine, and nothing
+else: the event is the one of `GET /v1/ggp8/events` whose `starts_at <= now <
+ends_at`, and the slot the one of its schedule whose `starts_at` has passed
+most recently, both read at the write. No such event, two such events, no
+schedule, no start times, or no slot started yet is one ephemeral sentence,
+and the last names the first slot's start. Two events at once is not decided
+here: the sentence points at `/submit_score`. That rule makes the schedule's
+start times a contract, written once as `active_slot`'s docstring. The machine
+is required regardless of the event's `machine_input_required`; the value is
+parsed by `cogs/submissions.py`'s parsers. Before the write,
+`GET /v1/players/{id}/results?scheduled_event_id=N` says what the caller holds
+on the slot, and the public confirmation names what the `PUT` replaced.
+
 **`/set_vote` records which track a lobby voted in on a race slot.**
 `cogs/votes.py` offers the race slots of the running events, then the chosen
 slot's own `tracks` — or `GET /v1/tracks` where the slot's lineup names none,
@@ -114,7 +128,9 @@ divisions hold two winners on one slot. The write is one `PUT` carrying the
 interaction's user as who recorded it, and a second one for the same lobby
 replaces the first. Who may run it is set on the command in Discord's
 integration settings; nothing here checks a role, so until that is set anybody
-may run it. A track is labelled
+may run it. The API answers an event with a single division as having none,
+so there the option offers nothing and the vote is the whole event's. A track
+is labelled
 `mirror Big Blue (mBB)`, type in words and then the short name, because the name alone is shared by a standard, a mirror and
 a classic track. Once recorded, the submission picker says
 `for mirror Sand Ocean (mSO)` and a board heads the slot `#3 99 (SO)`, each for the
@@ -240,7 +256,7 @@ FZD_API_KEY=...                   # ssh fzd 'sudo cat /etc/fzd-api/issued/stage-
 ```
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
-run that forgets them stops at startup rather than failing eleven commands one at a
+run that forgets them stops at startup rather than failing the API commands one at a
 time. `DB_NAME` moves with them: `/fzd_start_event` and `/fzd_events_schedule`
 still use the pool, and pointing the API at stage while the pool wrote elsewhere
 would split one command's effects across two schemas.

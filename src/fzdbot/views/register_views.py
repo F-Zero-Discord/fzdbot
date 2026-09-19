@@ -389,7 +389,7 @@ class ConfirmView(SessionView):
         # get division/team name
         match div_team_str:
             case DivTeam.DIVISION:
-                if len(event.divisions) == 1:
+                if event.has_solo_division:
                     div_team_str = DivTeam.NEITHER
                     div_team_name = ""
                 else:
@@ -439,7 +439,7 @@ class ConfirmWithdrawlView(SessionView):
         # get division/team name
         match div_team_str:
             case DivTeam.DIVISION:
-                if len(event.divisions) == 1:
+                if event.has_solo_division:
                     div_team_str = DivTeam.NEITHER
                     div_team_name = ""
                 else:
