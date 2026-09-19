@@ -8,17 +8,54 @@
 
 ## Design Philosophy
 
-This is the backend of a small-scale hobby based Discord bot. There are maybe a few submission of scores per minute. It's low throughput.
+This is a small-scale hobby Discord bot. There are maybe a few score submissions
+per minute. It's low throughput.
 
-**The governing principle is simplicity.** Code should be as simple as possible while delivering the required functionality. We do not add abstractions, safeguards, or patterns unless there is a clear, present need — not a hypothetical future one.
+Per decision 0009: **contributor experience outranks robustness.** Four
+volunteers touch FZD's code, and a change that generally works and ships beats
+one that always works and never lands. When a choice trades "harder to
+contribute to" against "harder to break", choose the one that can be
+contributed to.
+
+**The governing principle is simplicity.** Code should be as simple as possible
+while delivering the required functionality. We do not add abstractions,
+safeguards, or patterns unless there is a clear, present need — not a
+hypothetical future one.
 
 Rules of thumb:
 
-- Do not add a step unless it is obviously needed. (Not: remove steps that are obviously not needed.)
-- Prefer readable code over code that guards against concurrency, race conditions, or edge cases that the system's scale makes negligible.
-- When a robustness pattern is complex, it needs a convincing case that it protects against a meaningful risk at our scale. Most of the time it won't.
-- Elegance comes from simplifying logic, not from building complex logic and then adding more complexity to guard it.
-- Keep the repo small. Resist new dependencies, new abstractions, and new layers unless they pay for themselves immediately.
+- Do not add a step unless it is obviously needed. (Not: remove steps that are
+  obviously not needed.)
+- Prefer readable code over code that guards against concurrency, race
+  conditions, or edge cases that the system's scale makes negligible.
+- When a robustness pattern is complex, it needs a convincing case that it
+  protects against a meaningful risk at our scale. Most of the time it won't.
+- Elegance comes from simplifying logic, not from building complex logic and
+  then adding more complexity to guard it.
+- Keep the repo small. Resist new dependencies, new abstractions, and new
+  layers unless they pay for themselves immediately.
+
+When to add, and when to remove:
+
+- **Structure has to pay for something specific.** A layer, a helper or a rule
+  exists because it makes one named hard thing mechanical, or because a
+  decision record asks for it. Anything in this file or in the code that is not
+  paying for one of those should be deleted, not kept out of respect.
+- **An exception is the bar for the next one.** Where this repo already carries
+  a guard — a retry, a lock, a fallback — it is the whole of that exemption.
+  A second one is measured against the first, and it has to be at least as
+  well-founded.
+- **Name the price.** A pattern that costs every ordinary change something is
+  fine only if the text next to it says what that is and what it buys.
+- **Retire on evidence, not calendar.** Remove a guard or a branch when it is
+  observed to be unused, not when it feels old — and do not keep it because it
+  might be needed someday.
+
+Two things are outside this decision, and only two: unrecoverable loss of data,
+and reliability during a major event such as a GGP. Everything else is
+"breaks on Friday, fixed on Saturday". Where simplicity and correctness pull
+apart, say so in the change rather than quietly optimising for robustness out
+of habit.
 
 ## Before finishing
 
