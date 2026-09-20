@@ -102,7 +102,7 @@ class RegisterMenuView(SessionView):
             status = user_event_status(event, user)
             section_text.append(
                 ui.TextDisplay(
-                    content=f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n\t{status['label']}"
+                    content=f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n\t{status['label']}"
                 )
             )
             section_button.append(
@@ -399,7 +399,7 @@ class ConfirmView(SessionView):
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team_str}")
 
-        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n"
+        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n"
         if div_team_str != DivTeam.NEITHER:
             choice_text += f"**{div_team_str.capitalize()}**\n\t{div_team_name}"
         confirm_text = "### Are you ready! Confirm below."
@@ -449,7 +449,7 @@ class ConfirmWithdrawlView(SessionView):
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team_str}")
 
-        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n"
+        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n"
         if div_team_str != DivTeam.NEITHER:
             choice_text += f"**{div_team_str.capitalize()}**\n\t{div_team_name}"
         confirm_text = "### Are you sure you want to withdraw your registration?"
@@ -563,8 +563,8 @@ class ExitView(SessionView):
         for event, div_team_str, div_team_name in summary:
             text += (
                 f"\n### {event.event_name}\n"
-                f"{discord_timestamp(event.start_time, 'full')} "
-                f"({discord_timestamp(event.start_time, 'relative')})"
+                f"{discord_timestamp(event.starts_at, 'full')} "
+                f"({discord_timestamp(event.starts_at, 'relative')})"
             )
             if div_team_str and div_team_name:
                 text += f"\n{div_team_str.capitalize()}: **{div_team_name}**"

@@ -19,8 +19,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from fzdbot.api_types import EventResponse, SlotResponse
-from fzdbot.fzd_api import FzdApiError
+from fzdbot.api_types import MachineResponse, SlotResponse
+from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label, format_time, slot_name, track_label, vote_winner
 from fzdbot.settings import get_settings
@@ -64,17 +64,13 @@ def parse_time(text: str) -> int | None:
     return (minutes * 60 + seconds) * 100 + centiseconds
 
 
-def _choice_name(event: EventResponse, slot: SlotResponse, division_id: int | None) -> str:
-    """`Friday EU #3 99 for mirror Sand Ocean (mSO)` once the player's lobby has voted.
-    `division_id` is the group the player holds in the event, which names a
-    lobby only where the event has divisions; anywhere else the event has one
-    lobby, and its vote is the one shown.
-    """
-    name = f"{event_label(event)} #{slot['position']} {slot['lineup_short_name']}"
+def _choice_name(slot: SlotResponse, division_id: int | None) -> str:
+    """`Prix #1 Knight League`; `Race #3 99 Mirror Sand Ocean` once the player's lobby has voted."""
+    name = f"{slot['kind'].capitalize()} #{slot['position']} {slot['lineup_name'] or slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id) or vote_winner(slot)
     if winner:
-        name += f" for {track_label(winner)}"
-    return name[:MAX_CHOICE_NAME]
+        name += f" {track_label(winner['track_name'], winner['track_type'])}"
+    return name
 
 
 def recency(slot: SlotResponse, now: datetime) -> tuple[int, float]:
@@ -87,6 +83,31 @@ def recency(slot: SlotResponse, now: datetime) -> tuple[int, float]:
     if starts_at <= now:
         return (0, (now - starts_at).total_seconds())
     return (1, (starts_at - now).total_seconds())
+
+
+def machine_named(machines: list[MachineResponse], name: str) -> MachineResponse:
+    """The machine row named, matched without case. `ValueError` for a name the API does not list."""
+    wanted = name.strip().casefold()
+    for row in machines:
+        if row["name"].casefold() == wanted:
+            return row
+    raise ValueError(name)
+
+
+async def machine_choices(api: FzdApi, current: str) -> list[app_commands.Choice[str]]:
+    """Every machine whose name contains what has been typed so far."""
+    try:
+        machines = await api.machines()
+    except FzdApiError as error:
+        logger.warning("[machines] autocomplete could not read the API: %s", error)
+        return []
+    needle = current.casefold()
+    choices = [
+        app_commands.Choice(name=machine["name"], value=machine["name"])
+        for machine in machines
+        if needle in machine["name"].casefold()
+    ]
+    return choices[:MAX_CHOICES]
 
 
 async def refuse(interaction: discord.Interaction, sentence: str) -> None:
@@ -129,9 +150,7 @@ class Submissions(commands.Cog):
 
         groups = await self._groups(interaction.user.id, schedules, now)
         needle = current.casefold()
-        named = [
-            (_choice_name(event, slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots
-        ]
+        named = [(_choice_name(slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots]
         choices = [
             app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
             for name, event, slot in named
@@ -161,33 +180,16 @@ class Submissions(commands.Cog):
     async def machine_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        try:
-            machines = await self.bot.api.machines()
-        except FzdApiError as error:
-            logger.warning("[submissions] machine autocomplete could not read the API: %s", error)
-            return []
-        needle = current.casefold()
-        choices = [
-            app_commands.Choice(name=machine["name"], value=machine["name"])
-            for machine in machines
-            if needle in machine["name"].casefold()
-        ]
-        return choices[:MAX_CHOICES]
+        return await machine_choices(self.bot.api, current)
 
     async def _machine_id(self, machine: str | None) -> int | None:
-        """The id of the machine named, or `None` for none. `ValueError` for a
-        name the API does not list.
-        """
         if machine is None:
             return None
-        for row in await self.bot.api.machines():
-            if row["name"].casefold() == machine.strip().casefold():
-                return row["machine_id"]
-        raise ValueError(machine)
+        return machine_named(await self.bot.api.machines(), machine)["machine_id"]
 
     async def _describe(self, scheduled_event_id: int, slot_id: int) -> str:
-        """`Wacky Wednesday #1 Knight`: the event and the slot as a sentence
-        names them, read after the write. Falls back to the ids when a read
+        """`2026-09-23 | Wacky Wednesday #1 Knight`: the event and the slot as a
+        sentence names them, read after the write. Falls back to the ids when a read
         fails: the result is set either way, and the confirmation should say so.
         """
         try:

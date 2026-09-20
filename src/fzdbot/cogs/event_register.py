@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from fzdbot.api_types import Ggp8StatOption
 from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
@@ -67,7 +68,7 @@ class RegSession:
         self.api = api
 
         self.current_view: SessionView | None = None
-        self.user = UserRegistrations(interaction)
+        self.user = UserRegistrations()
         self.events: list[Event] = []
         self._prefetch: asyncio.Task | None = None
 
@@ -82,8 +83,8 @@ class RegSession:
 
         # The answer lists the stats screen offers. They arrive with the answers
         # themselves, in the same call, so the screen needs no read of its own.
-        self.recent_options: list[dict] = []
-        self.self_eval_options: list[dict] = []
+        self.recent_options: list[Ggp8StatOption] = []
+        self.self_eval_options: list[Ggp8StatOption] = []
 
     @property
     def event(self) -> Event:
@@ -126,7 +127,7 @@ class RegSession:
         """
         payload = await self.api.registrations(self.origin.user.id, datetime.now(UTC))
         self.events = [Event.from_api(event) for event in payload]
-        self.user = UserRegistrations.from_api(self.origin, payload)
+        self.user = UserRegistrations.from_api(payload)
 
     async def ready(self) -> None:
         """Block until the prefetch has landed. Cheap once it has."""
@@ -198,11 +199,7 @@ class RegSession:
                 return DivTeamAddView(self.event)
 
             case NextStep.EDIT:
-                div_team_id = next(
-                    reg["div_team_id"]
-                    for reg in self.user.registrations
-                    if reg["scheduled_event_id"] == self.event.scheduled_event_id
-                )
+                div_team_id = self.user.group_ids[self.event.scheduled_event_id]
                 self.div_team_id = div_team_id
                 return DivTeamEditView(event=self.event, existing_div_team_id=div_team_id)
 

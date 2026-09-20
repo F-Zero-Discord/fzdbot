@@ -1,4 +1,4 @@
-from datetime import datetime
+from typing import TypedDict
 
 import discord
 
@@ -6,32 +6,23 @@ from fzdbot.utils.event_class import Event, UserRegistrations
 from fzdbot.utils.view_utils import DivTeam, NextStep, discord_timestamp
 
 
-def user_event_status(event: Event, user: UserRegistrations) -> dict:
-    """Structure of user_dict:
-        scheduled_event_id: int,
-        type: Literal["division","team"],
-        id: int (either division_id or team_id).
+class EventStatus(TypedDict):
+    """The menu line and the button for one event, given where the player stands."""
 
-    Structure of output:
-        label:
-            - already registered (user in user_divisions or user_teams)
-            - waitlist (user in log but not in user_divisions or user_teams)
-            - registration open (user not in log and
-                now > reg_open and num_registered < sum(capacity))
-            - registration not yet open (now > reg_open)
-            - registration closed (now > reg_close and user not in log)
-            - event full (user not in log and num_registered >= capacity)
-        button_label: str {"register", "edit"}
-        button_disabled: bool [True, False]
-        button_color: str [green, yellow]
-        next_step: NextStep [enum]
-    """
+    label: str
+    button_label: str
+    button_color: discord.ButtonStyle
+    button_disabled: bool
+    next_step: NextStep
+
+
+def user_event_status(event: Event, user: UserRegistrations) -> EventStatus:
     # Case: user is registered
     #   Note: Present logic allows user to edit a registration after the
     #       registration period closes
     if user.is_registered(event.scheduled_event_id):
         if event.has_solo_division:
-            status = {
+            status: EventStatus = {
                 "label": "Registered",
                 "button_label": "Withdraw",
                 "button_color": discord.ButtonStyle.red,
@@ -39,7 +30,7 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
                 "next_step": NextStep.WITHDRAW_CONF,
             }
         else:
-            status = {
+            status: EventStatus = {
                 "label": "Registered",
                 "button_label": "Edit",
                 "button_color": discord.ButtonStyle.blurple,
@@ -49,9 +40,9 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
         return status
 
     # Case: user not registered, but registration is open
-    if (not user.is_registered(event.scheduled_event_id)) and (event.reg_period_open) and (not event.at_capacity):
+    if (not user.is_registered(event.scheduled_event_id)) and (event.registration_open) and (not event.at_capacity):
         if event.has_solo_division:
-            status = {
+            status: EventStatus = {
                 "label": "Registration Open!",
                 "button_label": "Register",
                 "button_color": discord.ButtonStyle.green,
@@ -59,7 +50,7 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
                 "next_step": NextStep.CONFIRM,
             }
         else:
-            status = {
+            status: EventStatus = {
                 "label": "Registration Open!",
                 "button_label": "Register",
                 "button_color": discord.ButtonStyle.green,
@@ -69,9 +60,9 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
         return status
 
     # Case: user not registered, but registration not yet open
-    if (not user.is_registered(event.scheduled_event_id)) and (event.reg_period_not_started):
-        status = {
-            "label": f"Registration opens {discord_timestamp(event.reg_open, 'long')}",
+    if (not user.is_registered(event.scheduled_event_id)) and (event.registration_not_started):
+        status: EventStatus = {
+            "label": f"Registration opens {discord_timestamp(event.registration_opens_at, 'long')}",
             "button_label": "Register",
             "button_color": discord.ButtonStyle.green,
             "button_disabled": True,
@@ -80,8 +71,8 @@ def user_event_status(event: Event, user: UserRegistrations) -> dict:
         return status
 
     # Case: user not registered, but registration has closed
-    if (not user.is_registered(event.scheduled_event_id)) and (event.reg_period_closed):
-        status = {
+    if (not user.is_registered(event.scheduled_event_id)) and (event.registration_closed):
+        status: EventStatus = {
             "label": "Registration period has ended",
             "button_label": "-----",
             "button_color": discord.ButtonStyle.gray,
@@ -121,19 +112,15 @@ def registered_summary(events: list[Event], user: UserRegistrations) -> list[tup
         div_team_name: str | None = None
 
         if not event.has_solo_division:
-            registration = next(
-                reg for reg in user.registrations if reg["scheduled_event_id"] == event.scheduled_event_id
-            )
+            group_id = user.group_ids[event.scheduled_event_id]
             if event.divisions:
                 div_team_str = DivTeam.DIVISION
-                div_team_name = next((d.name for d in event.divisions if d.id == registration["div_team_id"]), None)
+                div_team_name = next((d.name for d in event.divisions if d.id == group_id), None)
             elif event.teams:
                 div_team_str = DivTeam.TEAM
-                div_team_name = next((t.name for t in event.teams if t.id == registration["div_team_id"]), None)
+                div_team_name = next((t.name for t in event.teams if t.id == group_id), None)
 
         summary.append((event, div_team_str, div_team_name))
 
-    # start_time should always be set, but a missing one must not take the whole
-    # exit screen down with a comparison against None: sort it last instead.
-    summary.sort(key=lambda row: (row[0].start_time is None, row[0].start_time or datetime.min))
+    summary.sort(key=lambda row: row[0].starts_at)
     return summary

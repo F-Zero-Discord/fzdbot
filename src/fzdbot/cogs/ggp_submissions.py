@@ -18,8 +18,17 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from fzdbot.api_types import EventResponse, MachineResponse, PlayerResultResponse, SlotResponse
-from fzdbot.cogs.submissions import DNF, MAX_CHOICES, TIME_EXAMPLE, parse_score, parse_time, recency, refuse
+from fzdbot.api_types import EventResponse, PlayerResultResponse, SlotResponse
+from fzdbot.cogs.submissions import (
+    DNF,
+    TIME_EXAMPLE,
+    machine_choices,
+    machine_named,
+    parse_score,
+    parse_time,
+    recency,
+    refuse,
+)
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label, format_time, slot_name
@@ -78,18 +87,7 @@ class GgpSubmissions(commands.Cog):
     async def machine_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        try:
-            machines = await self.bot.api.machines()
-        except FzdApiError as error:
-            logger.warning("[ggp_submissions] machine autocomplete could not read the API: %s", error)
-            return []
-        needle = current.casefold()
-        choices = [
-            app_commands.Choice(name=machine["name"], value=machine["name"])
-            for machine in machines
-            if needle in machine["name"].casefold()
-        ]
-        return choices[:MAX_CHOICES]
+        return await machine_choices(self.bot.api, current)
 
     async def _active(
         self, interaction: discord.Interaction, now: datetime
@@ -126,15 +124,6 @@ class GgpSubmissions(commands.Cog):
         await refuse(interaction, sentence)
         return None
 
-    async def _machine(self, name: str) -> MachineResponse:
-        """The machine row named, matched without case. `ValueError` for a
-        name the API does not list.
-        """
-        for row in await self.bot.api.machines():
-            if row["name"].casefold() == name.strip().casefold():
-                return row
-        raise ValueError(name)
-
     async def _submit(self, interaction: discord.Interaction, method: Method, value: int | None, machine: str) -> None:
         """Set `value` on the active slot for the caller, then confirm publicly,
         naming what it replaced where the caller had a result on the slot.
@@ -147,10 +136,11 @@ class GgpSubmissions(commands.Cog):
             if active is None:
                 return
             event, slot = active
-            machine_row, results = await asyncio.gather(
-                self._machine(machine),
+            machines, results = await asyncio.gather(
+                self.bot.api.machines(),
                 self.bot.api.player_results(interaction.user.id, event["scheduled_event_id"]),
             )
+            machine_row = machine_named(machines, machine)
             previous = next((row for row in results if row["slot_id"] == slot["slot_id"]), None)
             write = self.bot.api.set_score if method == "score" else self.bot.api.set_time
             await write(

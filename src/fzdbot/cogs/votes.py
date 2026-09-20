@@ -21,7 +21,7 @@ from discord.ext import commands
 from fzdbot.cogs.submissions import MAX_CHOICE_NAME, MAX_CHOICES, SLOT_VALUE, recency
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
-from fzdbot.scoreboards import event_label, slot_name, track_label
+from fzdbot.scoreboards import event_label, group_label, slot_name, track_label
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -80,15 +80,17 @@ class Votes(commands.Cog):
         try:
             schedule = await self.bot.api.schedule(scheduled_event_id)
             slot = next((s for s in schedule if s["slot_id"] == slot_id), None)
-            tracks = (slot["tracks"] if slot else []) or await self.bot.api.tracks()
+            if slot is None:
+                return []
+            tracks = slot["tracks"] or await self.bot.api.tracks()
         except FzdApiError as error:
             logger.warning("[votes] track autocomplete could not read the API: %s", error)
             return []
         needle = current.casefold()
         choices = [
-            app_commands.Choice(name=track_label(track), value=str(track["track_id"]))
+            app_commands.Choice(name=track_label(track["name"], track["type"]), value=str(track["track_id"]))
             for track in tracks
-            if needle in track_label(track).casefold()
+            if needle in track_label(track["name"], track["type"]).casefold()
         ]
         return choices[:MAX_CHOICES]
 
@@ -109,10 +111,11 @@ class Votes(commands.Cog):
         if detail["group_kind"] != "division":
             return []
         needle = current.casefold()
+        named = [(group_label(group), group) for group in detail["groups"]]
         choices = [
-            app_commands.Choice(name=group["alt_name"] or group["name"], value=str(group["group_id"]))
-            for group in detail["groups"]
-            if needle in (group["alt_name"] or group["name"]).casefold()
+            app_commands.Choice(name=name, value=str(group["group_id"]))
+            for name, group in named
+            if needle in name.casefold()
         ]
         return choices[:MAX_CHOICES]
 

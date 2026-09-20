@@ -157,9 +157,9 @@ integration settings; nothing here checks a role, so until that is set anybody
 may run it. The API answers an event with a single division as having none,
 so there the option offers nothing and the vote is the whole event's. A track
 is labelled
-`mirror Big Blue (mBB)`, type in words and then the short name, because the name alone is shared by a standard, a mirror and
+`Mirror Big Blue`, type in words, because the name alone is shared by a standard, a mirror and
 a classic track. Once recorded, the submission picker says
-`for mirror Sand Ocean (mSO)` and a board heads the slot `#3 99 (SO)`, each for the
+`Race #3 99 Mirror Sand Ocean` and a board heads the slot `#3 99 (Mirror Sand Ocean)`, each for the
 lobby in question: the picker reads the player's group from
 `GET /v1/players/{id}/registrations`, and only when some slot holds a
 division's vote, and a board per division reads its own division's.

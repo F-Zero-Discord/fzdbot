@@ -6,18 +6,17 @@ the scoreboard and nothing is summed or ranked here.
 """
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TypedDict
 
 from fzdbot.api_types import (
     EventDetailResponse,
     EventGroupResponse,
-    EventResponse,
     LobbyVoteWinnerResponse,
     ScoreboardResponse,
     ScoreboardRowResponse,
     SlotResponse,
     SlotResultResponse,
-    SlotTrackResponse,
-    TrackResponse,
 )
 
 PODIUM = {1: "<:1st:1201576405339754546>", 2: "<:2nd:1201576409638903858>", 3: "<:3rd:1201576412444905653>"}
@@ -38,23 +37,24 @@ class Board:
     lines: list[str] = field(default_factory=list)
 
 
-def event_label(event: EventResponse | EventDetailResponse) -> str:
-    return event["display_name"] or event["event"]
+class ScheduledEvent(TypedDict):
+    """What every scheduled-event payload shares, and all a label needs."""
+
+    starts_at: str
+    event: str
 
 
-def track_label(track: TrackResponse | SlotTrackResponse | LobbyVoteWinnerResponse) -> str:
-    """`mirror Big Blue (mBB)`, `Big Blue (BB)`. A name is shared by a standard,
-    a mirror and a classic track, so the type is said wherever it is not
-    standard, in words and again as the short name where the track has one.
+def event_label(event: ScheduledEvent) -> str:
+    """`2026-09-19 | Friday EU GP`: the UTC date of the start and the event's name."""
+    date = datetime.fromisoformat(event["starts_at"]).astimezone(UTC)
+    return f"{date:%Y-%m-%d} | {event['event']}"
+
+
+def track_label(name: str, kind: str) -> str:
+    """`Mirror Big Blue`, `Big Blue`: a name is shared by a standard, a mirror
+    and a classic track, so the type is said wherever it is not standard.
     """
-    if "track_name" in track:
-        return _track_label(track["track_name"], track["track_type"], track["track_short_name"])
-    return _track_label(track["name"], track["type"], track["short_name"])
-
-
-def _track_label(name: str, kind: str, short_name: str | None) -> str:
-    label = name if kind == "standard" else f"{kind} {name}"
-    return f"{label} ({short_name})" if short_name else label
+    return name if kind == "standard" else f"{kind.capitalize()} {name}"
 
 
 def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVoteWinnerResponse | None:
@@ -65,13 +65,11 @@ def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVote
 
 
 def slot_name(slot: SlotResponse, division_id: int | None = None) -> str:
-    """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (mSO)`:
-    the winner by its short name, and by its name where it has none.
-    """
+    """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (Mirror Sand Ocean)`."""
     name = f"#{slot['position']} {slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id)
     if winner:
-        name += f" ({winner['track_short_name'] or winner['track_name']})"
+        name += f" ({track_label(winner['track_name'], winner['track_type'])})"
     return name
 
 
@@ -99,7 +97,7 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
             _board(
                 detail,
                 scoreboard,
-                _title(group),
+                group_label(group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
                 division_id=group_id,
@@ -112,13 +110,14 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
         return boards
 
     named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
-    title = _title(groups[named]) if named in groups else ""
+    title = group_label(groups[named]) if named is not None else ""
     return [
         _board(detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"])
     ]
 
 
-def _title(group: EventGroupResponse) -> str:
+def group_label(group: EventGroupResponse) -> str:
+    """The alternative name where staff set one, else the name."""
     return group["alt_name"] or group["name"]
 
 
@@ -148,7 +147,7 @@ def _board(
 
     below_podium = False
     for row in rows:
-        if podium and not below_podium and (row["rank"] or 4) > 3:
+        if podium and not below_podium and (row["rank"] is None or row["rank"] > 3):
             board.lines.append("======================")
             below_podium = True
         prefix = _rank(row["rank"], podium)

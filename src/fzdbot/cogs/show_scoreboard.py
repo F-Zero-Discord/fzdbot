@@ -242,9 +242,6 @@ class Scoreboard(commands.Cog):
         now: datetime,
         reads: Reads,
     ) -> None:
-        """`reads` memoises the tick's detail per event and scoreboard per
-        (event, group), so two boards of one event cost one pair of reads.
-        """
         message_id = int(board["message_id"])
         event_id = board["scheduled_event_id"]
         narrowed = (board["division_id"], board["team_id"])
