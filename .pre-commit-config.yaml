@@ -1,0 +1,8 @@
+- repo: local
+  hooks:
+    - id: update-agents-tree
+      name: Update AGENTS.md directory tree
+      entry: bash scripts/update-agents-md-tree.sh
+      language: system
+      pass_filenames: false
+      always_run: true

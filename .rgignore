@@ -1,0 +1,26 @@
+# Third-party / generated — never search these
+
+.vscode/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.git/
+
+# Tool caches
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Lock files (large, not useful to read)
+
+uv.lock
+
+# Node (if any JS tooling exists)
+
+node_modules/

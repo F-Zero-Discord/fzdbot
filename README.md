@@ -74,7 +74,8 @@ Defaulted settings (used automatically if missing from `.env`):
 * `DB_HOST` defaults to `localhost`
 * `DB_PORT` defaults to `3306`
 * `LOG_LEVEL` defaults to `INFO`
-* `SCOREBOARD_DISPLAY_PODIUM` defaults to `true`
+* `ERROR_ALERT_CHANNEL_ID` defaults to unset (Discord error alerts disabled)
+* `SCOREBOARD_DISPLAY_PODIUM` defaults to `false`
 * `SCOREBOARD_LINES_PER_BLOCK` defaults to `8`
 
 What happens when values are missing or empty:
@@ -89,6 +90,7 @@ What happens when values are missing or empty:
 * Sync dependencies with `uv sync --dev`.
 * Run lint fixes and import sorting with `uv run ruff check . --fix`.
 * Run formatting with `uv run ruff format .`.
+* Run type checking with `uv run pyright`.
 
 ### Run the bot
 

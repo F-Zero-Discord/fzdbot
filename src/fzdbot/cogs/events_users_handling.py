@@ -4,17 +4,16 @@ import logging
 import discord
 from discord.ext import commands
 from discord import app_commands
-import aiomysql
 
+from fzdbot.error_alerts import send_error_alert
+from fzdbot.fzd_api import FzdApiError
 from fzdbot.fzd_db import get_db_connection  # connect_to_database
 from fzdbot.fzd_db import get_event_types
-from fzdbot.fzd_db import add_new_user
-from fzdbot.fzd_db import get_user_id
-from fzdbot.fzd_db import modify_user_display_name
 from fzdbot.fzd_db import check_for_active_event
 from fzdbot.fzd_db import create_event
 from fzdbot.fzd_db import get_event_schedule
 from fzdbot.formatters import format_events_schedule
+from fzdbot.utils.user_utils import default_display_name
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -72,10 +71,22 @@ class Modify_Events_Users(commands.Cog):
                 await interaction.response.send_message(f"✅ FZD event {event_name[0]} successfully started!")
                 logger.info("User %s started event %s", interaction.user, event_name[0])
 
-        except Exception as e:
+        except (IndexError, ValueError) as e:
             logger.warning("[startEvent] exception: %s", e)
             await interaction.response.send_message(
                 f"❌ ERROR! Must choose from available event options -- {opts}", ephemeral=True
+            )
+        except Exception as error:
+            logger.exception("[startEvent] Unexpected exception")
+            await send_error_alert(
+                self.bot,
+                where="fzd_start_event",
+                error=error,
+                interaction=interaction,
+            )
+            await interaction.response.send_message(
+                "❌ ERROR! Something went wrong, please contact FZD staff to address!",
+                ephemeral=True,
             )
 
     async def cog_load(self):
@@ -85,52 +96,37 @@ class Modify_Events_Users(commands.Cog):
             self.recurring_events = await get_event_types(db)
 
     # This command registers a user into the database
-    @app_commands.command(name="fzd_register", description="Register your discord id to FZD scoreboard database")
+    @app_commands.command(name="fzd_set_name", description="Register your discord id to FZD scoreboard database")
     async def registerUser(self, interaction: discord.Interaction, display_name: str):
         warning = ""
         if display_name is None:
-            display_name = interaction.user.nick[0:10]
+            display_name = default_display_name(interaction.user)
         elif len(display_name) > 10:
             display_name = display_name[0:10]
             warning = "⚠️  Warning: display_name should be 10 characters or less (as in F-Zero 99 in game name) \n"
 
         try:
-            async with get_db_connection() as db:
-                db_user_id = await get_user_id(db, interaction.user.name)
-                if db_user_id is None:
-                    await add_new_user(db, interaction.user, display_name=display_name)
-                    await interaction.response.send_message(
-                        f"{warning}✅  User {interaction.user} is now registered in the FZD database with display name {display_name}",
-                        ephemeral=True,
-                    )
-                    logger.info(
-                        "User %s registered with display name %s",
-                        interaction.user,
-                        display_name,
-                    )
-                else:
-                    await modify_user_display_name(db, db_user_id, display_name)
-                    await interaction.response.send_message(
-                        f"{warning}✅  User {interaction.user} successfully modified their display name to {display_name}",
-                        ephemeral=True,
-                    )
-                    logger.info(
-                        "User %s modified display name to %s",
-                        interaction.user,
-                        display_name,
-                    )
-
-        except aiomysql.IntegrityError as ie:  # Unique column collision
-            await interaction.response.send_message(
-                f"{warning}❌ ERROR! The name '{display_name}' is already taken in the database, please use a different name!",
+            await interaction.response.defer(ephemeral=True)
+            await self.bot.api.set_tag(interaction.user.id, interaction.user.name, display_name)
+            await interaction.followup.send(
+                f"{warning}✅  User {interaction.user} is now registered in the FZD database with display name {display_name}",
                 ephemeral=True,
             )
-            logger.warning("[registerUser] IntegrityError: %s", ie)
-        except Exception:
-            await interaction.response.send_message(
+            logger.info("User %s set display name to %s", interaction.user, display_name)
+        except FzdApiError as error:
+            await interaction.followup.send(f"{warning}❌ ERROR! {error}", ephemeral=True)
+            logger.warning("[registerUser] API error: %s", error)
+        except Exception as error:
+            await interaction.followup.send(
                 f"{warning}❌ ERROR! Something went wrong, please contact FZD staff to address!", ephemeral=True
             )
             logger.exception("[registerUser] Exception occurred in fzd_register")
+            await send_error_alert(
+                self.bot,
+                where="fzd_register",
+                error=error,
+                interaction=interaction,
+            )
 
     # @app_commands.command(name="test_async")
     # async def test_async(self, interaction: discord.Interaction, delay: int):
@@ -152,11 +148,17 @@ class Modify_Events_Users(commands.Cog):
                 )
                 schedule.add_field(name="", value=formatted_lines[0], inline=False)
                 await interaction.response.send_message(embed=schedule)
-        except Exception:
+        except Exception as error:
             await interaction.response.send_message(
-                f"❌ ERROR! Something went wrong, please contact FZD staff to address!", ephemeral=True
+                "❌ ERROR! Something went wrong, please contact FZD staff to address!", ephemeral=True
             )
             logger.exception("[viewSchedule] Exception occurred in fzd_events_schedule")
+            await send_error_alert(
+                self.bot,
+                where="fzd_events_schedule",
+                error=error,
+                interaction=interaction,
+            )
 
 
 async def setup(bot: commands.Bot):
