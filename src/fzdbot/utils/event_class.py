@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
 
 import discord
 
+from fzdbot.api_types import Ggp8StatOption, RegistrationEventResponse, RegistrationGroupResponse
 from fzdbot.utils.view_utils import DivTeam, discord_timestamp
 
 
@@ -21,7 +21,7 @@ def instant_to_naive_utc(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC).replace(tzinfo=None)
 
 
-def option_id(options: list[dict], text: str | None) -> int | None:
+def option_id(options: list[Ggp8StatOption], text: str | None) -> int | None:
     """The id of the option carrying `text`, or None.
 
     The API answers a stored questionnaire answer as text and offers the
@@ -78,7 +78,7 @@ class Team(Group):
     pass
 
 
-def _group_from_api[G: Group](cls: type[G], group: dict, scheduled_event_id: int) -> G:
+def _group_from_api[G: Group](cls: type[G], group: RegistrationGroupResponse, scheduled_event_id: int) -> G:
     """One division or team, with the headcount the API counted."""
     return cls(
         id=group["group_id"],
@@ -96,8 +96,8 @@ class Event:
     scheduled_event_id: int
     event_name: str
     description: str | None
-    mode: Literal["99", "classic"] | None
-    scoring: Literal["points", "placement"] | None
+    mode: str | None
+    scoring: str | None
     machine_required: bool
     start_time: datetime | None
     end_time: datetime | None
@@ -175,7 +175,7 @@ class Event:
                 raise ValueError("Unknown format specifier...")
 
     @staticmethod
-    def from_api(event: dict) -> "Event":
+    def from_api(event: RegistrationEventResponse) -> "Event":
         """One event object from `GET /v1/players/{id}/registrations`.
 
         The whole screen in one payload: the event, its groups, and each
@@ -245,7 +245,7 @@ class UserRegistrations:
         return any(r.get("scheduled_event_id") == scheduled_event_id for r in self.registrations)
 
     @staticmethod
-    def from_api(interaction: discord.Interaction, events: list[dict]) -> "UserRegistrations":
+    def from_api(interaction: discord.Interaction, events: list[RegistrationEventResponse]) -> "UserRegistrations":
         """Where this player stands, read off the same payload the events came
         from.
 

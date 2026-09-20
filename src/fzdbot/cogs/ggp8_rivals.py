@@ -11,12 +11,18 @@ the refusal a user sees.
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from fzdbot.api_types import (
+    ChallengerResponse,
+    EventResponse,
+    Ggp8RegistrationResponse,
+    RivalEventResponse,
+    RivalPlayerResponse,
+)
 from fzdbot.formatters import format_discord_timestamp
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
@@ -28,15 +34,15 @@ MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
 MAX_CHOICE_NAME = 100  # and at most 100 characters per choice name
 
 
-def _event_label(event: dict[str, Any]) -> str:
+def _event_label(event: EventResponse | RivalEventResponse) -> str:
     return event["display_name"] or event["event"]
 
 
-def _player_name(player: dict[str, Any]) -> str:
-    return player["tag"] or player["discord_user_name"] or player["discord_user_id"]
+def _player_name(player: RivalPlayerResponse | Ggp8RegistrationResponse) -> str:
+    return player["tag"] or player["discord_user_name"] or player["discord_user_id"] or ""
 
 
-def _group(registration: dict[str, Any]) -> str | None:
+def _group(registration: Ggp8RegistrationResponse) -> str | None:
     """The division or team a registration row names. An event runs on one or
     the other, so exactly one is set.
     """
@@ -48,14 +54,14 @@ def _matches(typed: str, *names: str | None) -> bool:
     return any(needle in name.casefold() for name in names if name)
 
 
-def _names(players: list[dict[str, Any]], empty: str) -> str:
+def _names(players: list[RivalPlayerResponse], empty: str) -> str:
     """A quoted block, one player per line, or the placeholder in italics."""
     if not players:
         return f"> *{empty}*"
     return "\n".join(f"> **{_player_name(player)}**" for player in players)
 
 
-def _event_field(event: dict[str, Any], challengers: list[dict[str, Any]]) -> tuple[str, str]:
+def _event_field(event: RivalEventResponse, challengers: list[ChallengerResponse]) -> tuple[str, str]:
     """One embed field: the event as its name, and under it the caller's pick
     and everyone who picked them, each as a quoted block.
     """
@@ -124,18 +130,23 @@ class Ggp8Rivals(commands.Cog):
             return []
 
         # A registrant with no stored Discord id cannot be named in a pick.
-        players = [row for row in registrations if row["scheduled_event_id"] == int(event) and row["discord_user_id"]]
-        own = next((row for row in players if int(row["discord_user_id"]) == interaction.user.id), None)
+        players = [
+            row
+            for row in registrations
+            if row["scheduled_event_id"] == int(event) and row["discord_user_id"] is not None
+        ]
+        own = next((row for row in players if row["discord_user_id"] == str(interaction.user.id)), None)
         own_group = _group(own) if own is not None else None
 
         choices = []
         for row in sorted(players, key=lambda row: _player_name(row).casefold()):
-            if row is own or not _matches(current, row["tag"], row["discord_user_name"]):
+            discord_user_id = row["discord_user_id"]
+            if discord_user_id is None or row is own or not _matches(current, row["tag"], row["discord_user_name"]):
                 continue
             label = _player_name(row)
             if own_group is not None and _group(row) != own_group:
                 label = f"{label} — {_group(row)} (another division)"
-            choices.append(app_commands.Choice(name=label[:MAX_CHOICE_NAME], value=row["discord_user_id"]))
+            choices.append(app_commands.Choice(name=label[:MAX_CHOICE_NAME], value=discord_user_id))
         return choices[:MAX_CHOICES]
 
     @app_commands.command(name="ggp8_rivals", description="Name your rival for a GGP8 event")
@@ -153,9 +164,10 @@ class Ggp8Rivals(commands.Cog):
             await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
             return
 
-        rival = result["rival"]["player"]
+        rival = result["rival"]
+        assert rival is not None, "the PUT answers the event with the pick just made"
         await interaction.followup.send(
-            f"🎯 Your rival for **{_event_label(result)}** is now **{_player_name(rival)}**. "
+            f"🎯 Your rival for **{_event_label(result)}** is now **{_player_name(rival['player'])}**. "
             "Run the command again to change it, or `/ggp8_rivals_delete` to remove it.",
             ephemeral=True,
         )

@@ -16,12 +16,12 @@ tick does not read again. Stopping a board early is deleting its message.
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from fzdbot.api_types import EventDetailResponse, EventGroupResponse, LiveScoreboardResponse, ScoreboardResponse
 from fzdbot.error_alerts import send_error_alert
 from fzdbot.formatters import format_discord_timestamp, format_scoreboard_for_discord_embed
 from fzdbot.fzd_api import FzdApiError
@@ -37,12 +37,16 @@ MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
 MAX_EMBEDS = 10  # and at most 10 embeds per message
 
 
-def _group_choice(group: dict[str, Any]) -> app_commands.Choice[str]:
+type Reads = dict[int, tuple[EventDetailResponse, dict[tuple[int | None, int | None], ScoreboardResponse]]]
+"""One tick's reads: the detail per event, and the scoreboard per (event, group)."""
+
+
+def _group_choice(group: EventGroupResponse) -> app_commands.Choice[str]:
     name = group["name"] if not group["alt_name"] else f"{group['name']} ({group['alt_name']})"
     return app_commands.Choice(name=name, value=str(group["group_id"]))
 
 
-def _find_group(detail: dict[str, Any], group: str) -> dict[str, Any] | None:
+def _find_group(detail: EventDetailResponse, group: str) -> EventGroupResponse | None:
     """The group a choice value names, or one typed by name."""
     wanted = group.strip().casefold()
     for candidate in detail["groups"]:
@@ -51,7 +55,7 @@ def _find_group(detail: dict[str, Any], group: str) -> dict[str, Any] | None:
     return None
 
 
-def _live_filters(detail: dict[str, Any], group: str | None) -> list[dict[str, int]] | None:
+def _live_filters(detail: EventDetailResponse, group: str | None) -> list[dict[str, int]] | None:
     """What each live board of the event is narrowed to: the named group, or
     with none named, every division of a division event and the whole event
     otherwise. `None` when the name matches no group.
@@ -66,7 +70,7 @@ def _live_filters(detail: dict[str, Any], group: str | None) -> list[dict[str, i
     return [{}]
 
 
-def _embeds(detail: dict[str, Any], scoreboard: dict[str, Any], *, final: bool = False) -> list[discord.Embed]:
+def _embeds(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *, final: bool = False) -> list[discord.Embed]:
     played = f"*Played on {format_discord_timestamp(datetime.fromisoformat(detail['starts_at']))}*"
     heading = [played, "**Final results**"] if final else [played]
     settings = get_settings()
@@ -220,7 +224,7 @@ class Scoreboard(commands.Cog):
             logger.warning("[live scoreboard] could not read the registry: %s", error)
             return
         now = datetime.now(UTC)
-        reads: dict[int, tuple[dict[str, Any], dict[tuple[int | None, int | None], dict[str, Any]]]] = {}
+        reads: Reads = {}
         for board in boards:
             message_id = int(board["message_id"])
             try:
@@ -234,9 +238,9 @@ class Scoreboard(commands.Cog):
 
     async def _refresh(
         self,
-        board: dict[str, Any],
+        board: LiveScoreboardResponse,
         now: datetime,
-        reads: dict[int, tuple[dict[str, Any], dict[tuple[int | None, int | None], dict[str, Any]]]],
+        reads: Reads,
     ) -> None:
         """`reads` memoises the tick's detail per event and scoreboard per
         (event, group), so two boards of one event cost one pair of reads.

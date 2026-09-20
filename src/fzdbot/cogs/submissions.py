@@ -14,12 +14,12 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from fzdbot.api_types import EventResponse, SlotResponse
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label, format_time, slot_name, track_label, vote_winner
@@ -64,7 +64,7 @@ def parse_time(text: str) -> int | None:
     return (minutes * 60 + seconds) * 100 + centiseconds
 
 
-def _choice_name(event: dict[str, Any], slot: dict[str, Any], division_id: int | None) -> str:
+def _choice_name(event: EventResponse, slot: SlotResponse, division_id: int | None) -> str:
     """`Friday EU #3 99 for mirror Sand Ocean (mSO)` once the player's lobby has voted.
     `division_id` is the group the player holds in the event, which names a
     lobby only where the event has divisions; anywhere else the event has one
@@ -77,7 +77,7 @@ def _choice_name(event: dict[str, Any], slot: dict[str, Any], division_id: int |
     return name[:MAX_CHOICE_NAME]
 
 
-def recency(slot: dict[str, Any], now: datetime) -> tuple[int, float]:
+def recency(slot: SlotResponse, now: datetime) -> tuple[int, float]:
     """Sort key: the slot that started most recently first, then the ones still
     to come soonest first, then the ones with no start entered.
     """
@@ -139,9 +139,7 @@ class Submissions(commands.Cog):
         ]
         return choices[:MAX_CHOICES]
 
-    async def _groups(
-        self, discord_user_id: int, schedules: list[list[dict[str, Any]]], now: datetime
-    ) -> dict[int, int]:
+    async def _groups(self, discord_user_id: int, schedules: list[list[SlotResponse]], now: datetime) -> dict[int, int]:
         """The group this player holds in each event, by event id. Read only
         when some slot holds a division's vote, which is the one thing here
         that depends on who is asking; a failed read shows the slots unlabelled.

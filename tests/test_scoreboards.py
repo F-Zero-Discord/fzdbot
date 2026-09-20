@@ -1,18 +1,43 @@
+from fzdbot.api_types import (
+    EventDetailResponse,
+    ScoreboardResponse,
+    ScoreboardRowResponse,
+    SlotResponse,
+    SlotResultResponse,
+    TeamTotalResponse,
+)
 from fzdbot.scoreboards import Board, format_loss, format_time, render_boards
 
 
-def slot(slot_id, position, short, multiplier=1):
+def slot(slot_id: int, position: int, short: str, multiplier: int = 1) -> SlotResponse:
     return {
         "slot_id": slot_id,
         "position": position,
+        "lineup_id": slot_id,
+        "lineup_name": None,
         "lineup_short_name": short,
+        "mode": "Grand Prix",
+        "kind": "prix",
+        "max_score": None,
         "multiplier": multiplier,
+        "starts_at": None,
+        "tracks": [],
         "vote_winner": None,
         "vote_winners": [],
+        "lobby": None,
     }
 
 
-def result(slot_id, *, score=None, time_cs=None, value=None, submitted=True, counted=True, open=True):
+def result(
+    slot_id: int | None,
+    *,
+    score: int | None = None,
+    time_cs: int | None = None,
+    value: int | None = None,
+    submitted: bool = True,
+    counted: bool = True,
+    open: bool = True,
+) -> SlotResultResponse:
     return {
         "slot_id": slot_id,
         "score": score,
@@ -24,7 +49,16 @@ def result(slot_id, *, score=None, time_cs=None, value=None, submitted=True, cou
     }
 
 
-def row(name, results, *, total, rank, group_id=None, submissions=None, emote=None):
+def row(
+    name: str,
+    results: list[SlotResultResponse],
+    *,
+    total: int | None,
+    rank: int | None,
+    group_id: int | None = None,
+    submissions: int | None = None,
+    emote: str | None = None,
+) -> ScoreboardRowResponse:
     return {
         "display_name": name,
         "emote": emote,
@@ -36,13 +70,24 @@ def row(name, results, *, total, rank, group_id=None, submissions=None, emote=No
     }
 
 
-def detail(*, group_kind=None, groups=(), slots=(), num_mulligans=0, max_time_loss_cs=None, method="points"):
+def detail(
+    *,
+    group_kind: str | None = None,
+    groups=(),
+    slots: tuple[SlotResponse, ...] | list[SlotResponse] = (),
+    num_mulligans: int = 0,
+    max_time_loss_cs: int | None = None,
+    method: str = "points",
+) -> EventDetailResponse:
     return {
         "scheduled_event_id": 1,
         "event": "Ashes",
         "display_name": None,
         "starts_at": "2026-09-26T18:00:00Z",
+        "ends_at": "2026-09-26T22:00:00Z",
+        "mode": "99",
         "scoring_method": method,
+        "machine_input_required": False,
         "group_kind": group_kind,
         "groups": list(groups),
         "slots": list(slots),
@@ -50,7 +95,14 @@ def detail(*, group_kind=None, groups=(), slots=(), num_mulligans=0, max_time_lo
     }
 
 
-def scoreboard(d, rows, *, division_id=None, team_id=None, team_totals=()):
+def scoreboard(
+    d: EventDetailResponse,
+    rows: list[ScoreboardRowResponse],
+    *,
+    division_id: int | None = None,
+    team_id: int | None = None,
+    team_totals: tuple[TeamTotalResponse, ...] | list[TeamTotalResponse] = (),
+) -> ScoreboardResponse:
     return {
         "scheduled_event_id": 1,
         "group_kind": d["group_kind"],
@@ -167,7 +219,10 @@ def test_team_event_ranks_teams_above_individuals():
         row("Bob", [result(1, score=50, value=50)], total=50, rank=2, group_id=12),
         row("Cid", [result(1, score=45, value=45)], total=45, rank=3, group_id=12),
     ]
-    totals = [{"group_id": 12, "total": 95, "rank": 1}, {"group_id": 13, "total": 90, "rank": 2}]
+    totals: list[TeamTotalResponse] = [
+        {"group_id": 12, "total": 95, "rank": 1},
+        {"group_id": 13, "total": 90, "rank": 2},
+    ]
     boards = render_boards(d, scoreboard(d, rows, team_totals=totals))
 
     assert boards[0].lines == [

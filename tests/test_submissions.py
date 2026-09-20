@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from fzdbot.api_types import SlotResponse
 from fzdbot.cogs.ggp_submissions import active_slot
 from fzdbot.cogs.submissions import format_time, parse_score, parse_time
 
@@ -42,8 +43,23 @@ def test_a_score_is_a_whole_number():
         parse_score("lots")
 
 
-def slot(slot_id, starts_at):
-    return {"slot_id": slot_id, "starts_at": starts_at}
+def slot(slot_id: int, starts_at: str | None) -> SlotResponse:
+    return {
+        "slot_id": slot_id,
+        "position": slot_id,
+        "lineup_id": slot_id,
+        "lineup_name": None,
+        "lineup_short_name": "Knight",
+        "mode": "Grand Prix",
+        "kind": "prix",
+        "max_score": None,
+        "multiplier": 1,
+        "starts_at": starts_at,
+        "tracks": [],
+        "vote_winner": None,
+        "vote_winners": [],
+        "lobby": None,
+    }
 
 
 NOW = datetime(2026, 9, 25, 20, 10, tzinfo=UTC)

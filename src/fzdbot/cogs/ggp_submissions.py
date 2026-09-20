@@ -12,12 +12,13 @@ time — is `/submit_score`'s and `/submit_time`'s, which offer every slot.
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from fzdbot.api_types import EventResponse, MachineResponse, PlayerResultResponse, SlotResponse
 from fzdbot.cogs.submissions import DNF, MAX_CHOICES, TIME_EXAMPLE, parse_score, parse_time, recency, refuse
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 Method = Literal["score", "time"]
 
 
-def active_events(events: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+def active_events(events: list[EventResponse], now: datetime) -> list[EventResponse]:
     """The events whose window holds `now`: started, and not yet ended."""
     return [
         event
@@ -38,7 +39,7 @@ def active_events(events: list[dict[str, Any]], now: datetime) -> list[dict[str,
     ]
 
 
-def active_slot(schedule: list[dict[str, Any]], now: datetime) -> dict[str, Any] | None:
+def active_slot(schedule: list[SlotResponse], now: datetime) -> SlotResponse | None:
     """The slot whose `starts_at` has passed most recently — at 20:00:00
     exactly, the one starting at 20:00 — or `None` when no slot has started.
     A slot with no start entered is never active.
@@ -60,7 +61,7 @@ def _value_phrase(method: Method, value: int | None) -> str:
     return f"a score of {value}" if method == "score" else f"a time of {format_time(value)}"
 
 
-def _replaced_phrase(method: Method, row: dict[str, Any] | None) -> str:
+def _replaced_phrase(method: Method, row: PlayerResultResponse | None) -> str:
     """`, replacing 820` for the row the write replaces, empty when there was none."""
     if row is None:
         return ""
@@ -92,7 +93,7 @@ class GgpSubmissions(commands.Cog):
 
     async def _active(
         self, interaction: discord.Interaction, now: datetime
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    ) -> tuple[EventResponse, SlotResponse] | None:
         """The running GGP8 event and its active slot, or `None` after telling
         the user why there is nothing to submit to.
         """
@@ -125,7 +126,7 @@ class GgpSubmissions(commands.Cog):
         await refuse(interaction, sentence)
         return None
 
-    async def _machine(self, name: str) -> dict[str, Any]:
+    async def _machine(self, name: str) -> MachineResponse:
         """The machine row named, matched without case. `ValueError` for a
         name the API does not list.
         """
