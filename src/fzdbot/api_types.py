@@ -21,7 +21,7 @@ class CatalogueTrackResponse(TypedDict):
     """
     name: str
     """
-    The track's name. Shared by a standard, a mirror and a classic track.
+    The track's name, as a client prints it: `mirror Sand Ocean` for a mirror track. A standard track and its classic twin share a name; `type` tells them apart.
     """
     type: str
     """
@@ -375,6 +375,9 @@ class HostAssignmentRequest(TypedDict):
 
 class LineupTrackResponse(TypedDict):
     name: str
+    """
+    The track's name, as a client prints it: `mirror Sand Ocean` for a mirror track. A standard track and its classic twin share a name; `type` tells them apart.
+    """
     type: str
     """
     `standard`, `mirror`, `classic` or `glitch`.
@@ -438,7 +441,7 @@ class LobbyVoteWinnerResponse(TypedDict):
     """
     track_name: str
     """
-    The track's name.
+    The track's name, as a client prints it: `mirror Sand Ocean` for a mirror track. A standard track and its classic twin share a name; `type` tells them apart.
     """
     track_type: str
     """
@@ -446,7 +449,7 @@ class LobbyVoteWinnerResponse(TypedDict):
     """
     track_short_name: str | None
     """
-    The track's short name, which like `track_type` tells a mirror or classic track from its twin.
+    The track's short name, which says its type: `SO`, `mSO`, `cSO`.
     """
 
 
@@ -816,7 +819,7 @@ class SlotTrackResponse(TypedDict):
     """
     name: str
     """
-    The track's name. Shared by a standard, a mirror and a classic track.
+    The track's name, as a client prints it: `mirror Sand Ocean` for a mirror track. A standard track and its classic twin share a name; `type` tells them apart.
     """
     type: str
     """
@@ -894,7 +897,7 @@ class TrackResponse(TypedDict):
     """
     name: str
     """
-    The track's name.
+    The track's name, as a client prints it: `mirror Sand Ocean` for a mirror track. A standard track and its classic twin share a name; `type` tells them apart.
     """
     type: str
     """
@@ -940,7 +943,7 @@ class VoteWinnerResponse(TypedDict):
     """
     track_name: str
     """
-    The track's name.
+    The track's name, as a client prints it.
     """
 
 

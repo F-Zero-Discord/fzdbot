@@ -133,17 +133,51 @@ reads. A second submission to a slot replaces the first; there is no edit.
 
 **`/ggp_submit_score` and `/ggp_submit_time` set a result on the slot the clock
 names.** `cogs/ggp_submissions.py` takes a value and a machine, and nothing
-else: the event is the one of `GET /v1/ggp8/events` whose `starts_at <= now <
-ends_at`, and the slot the one of its schedule whose `starts_at` has passed
-most recently, both read at the write. No such event, two such events, no
-schedule, no start times, or no slot started yet is one ephemeral sentence,
-and the last names the first slot's start. Two events at once is not decided
-here: the sentence points at `/submit_score`. That rule makes the schedule's
-start times a contract, written once as `active_slot`'s docstring. The machine
+else: the event is the one `GET /v1/events/active` answers, and the slot the
+one of its schedule whose `starts_at` has passed most recently, both read at
+the write. The names say GGP, but no `ggp_*` command asks whether the event is
+GGP8's: a weekly is taken the same way, so the commands can be tried on one.
+No such event, two such events, no schedule, no start times, or no slot
+started yet is one ephemeral sentence, and the last names the first slot's
+start. Two events at once is not decided here: the sentence points at
+`/submit_score`. That rule makes the schedule's start times a contract,
+written once as `active_slot`'s docstring. The machine
 is required regardless of the event's `machine_input_required`; the value is
 parsed by `cogs/submissions.py`'s parsers. Before the write,
 `GET /v1/players/{id}/results?scheduled_event_id=N` says what the caller holds
 on the slot, and the public confirmation names what the `PUT` replaced.
+
+**`/ggp_submit` is the same write as a form.** With no options it makes the
+same reads — the active events, the active event's schedule, `GET /v1/machines`
+and the caller's results — and answers with one `discord.ui.Modal` in place of
+a deferral, so they run inside Discord's three-second budget; a read that
+fails is the ephemeral sentence instead. The modal's title is the event and
+the slot cut to Discord's 45 characters; a `TextDisplay` names them in full
+and, where the caller holds a row on the slot, says what it is and that
+submitting replaces it; one `TextInput` under a `Label` asks for a score or
+a time as the event's `scoring_method` says, pre-filled with the held value;
+and a `RadioGroup` holds one button per machine, the held one selected.
+Discord refuses the form without a machine, so nothing here checks for one.
+The modal holds the event and slot it was built for and writes to those; a
+value that does not parse is one ephemeral sentence and the player runs the
+command again, since a modal submission cannot open a second modal. `Label`,
+`TextDisplay` and `RadioGroup` are what pin `discord.py>=2.7`.
+
+**`/ggp_show_submissions` lists the caller's own results on an event, gaps
+included.** Its one option, `event`, autocompletes from GGP8's events and
+whatever is running now — `GET /v1/ggp8/events` and `GET /v1/events/active`,
+merged as `fzd_api.ggp8_and_active_events`, the list `/setup_scoreboard`
+offers too — labelled as `event_label` labels them and carries the event id;
+left out, the event is the one that started most recently, or the first to
+come when none has. Two reads for that event, the schedule and
+`GET /v1/players/{id}/results?scheduled_event_id=N`, are joined on `slot_id`
+and answered as one ephemeral embed: the event as its title, one line per
+slot of the schedule in its order, the slot as `slot_name` names it and then
+the value as a board spells it (`850`, `1:30.44`, `DNF`) with the machine, or
+`not submitted`; the footer counts `2 of 4 slots submitted`. A slot not yet
+started is listed too, so the list is the whole schedule. No schedule is the
+same sentence `/ggp_submit_score` gives. Nothing here reads another player's
+rows: the API answers the caller's id only.
 
 **`/set_vote` records which track a lobby voted in on a race slot.**
 `cogs/votes.py` offers the race slots of the running events, then the chosen

@@ -22,13 +22,12 @@ from discord.ext import commands
 from fzdbot.api_types import MachineResponse, SlotResponse
 from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
-from fzdbot.scoreboards import event_label, format_time, slot_name, track_label, vote_winner
+from fzdbot.scoreboards import event_label, format_time, slot_name, vote_winner
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
-MAX_CHOICE_NAME = 100  # and at most 100 characters per choice name
 
 # A slot choice carries the event and the slot, both ids, as one value.
 SLOT_VALUE = re.compile(r"^(\d+):(\d+)$")
@@ -64,12 +63,12 @@ def parse_time(text: str) -> int | None:
     return (minutes * 60 + seconds) * 100 + centiseconds
 
 
-def _choice_name(slot: SlotResponse, division_id: int | None) -> str:
-    """`Prix #1 Knight League`; `Race #3 99 Mirror Sand Ocean` once the player's lobby has voted."""
+def choice_name(slot: SlotResponse, division_id: int | None) -> str:
+    """`Prix #1 Knight League`; `Race #3 99 mirror Sand Ocean` once the player's lobby has voted."""
     name = f"{slot['kind'].capitalize()} #{slot['position']} {slot['lineup_name'] or slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id) or vote_winner(slot)
     if winner:
-        name += f" {track_label(winner['track_name'], winner['track_type'])}"
+        name += f" {winner['track_name']}"
     return name
 
 
@@ -121,6 +120,23 @@ async def refuse(interaction: discord.Interaction, sentence: str) -> None:
         await interaction.response.send_message(sentence, ephemeral=True)
 
 
+async def slot_ids(interaction: discord.Interaction, slot: str) -> tuple[int, int] | None:
+    """The event and slot ids a choice carries, or `None` after telling the
+    user why there is nothing to pick.
+    """
+    match = SLOT_VALUE.match(slot.strip())
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    if slot == NO_EVENT:
+        sentence = "No event is running right now, so there is no slot to pick."
+    elif slot == NO_SCHEDULE:
+        sentence = "The running event has no schedule entered, so it has no slot to pick. Tell FZD staff."
+    else:
+        sentence = "Pick a slot from the list."
+    await refuse(interaction, sentence)
+    return None
+
+
 class Submissions(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
@@ -150,7 +166,7 @@ class Submissions(commands.Cog):
 
         groups = await self._groups(interaction.user.id, schedules, now)
         needle = current.casefold()
-        named = [(_choice_name(slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots]
+        named = [(choice_name(slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots]
         choices = [
             app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
             for name, event, slot in named
@@ -211,22 +227,6 @@ class Submissions(commands.Cog):
         where = await self._describe(scheduled_event_id, slot_id)
         await interaction.followup.send(f"✅ User {interaction.user.display_name} has {did} for {where}.")
 
-    async def _slot_ids(self, interaction: discord.Interaction, slot: str) -> tuple[int, int] | None:
-        """The event and slot ids a choice carries, or `None` after telling the
-        user why there is nothing to submit to.
-        """
-        match = SLOT_VALUE.match(slot.strip())
-        if match:
-            return int(match.group(1)), int(match.group(2))
-        if slot == NO_EVENT:
-            sentence = "No event is running right now, so there is nothing to submit to."
-        elif slot == NO_SCHEDULE:
-            sentence = "The running event has no schedule entered, so it cannot take results. Tell FZD staff."
-        else:
-            sentence = "Pick a slot from the list."
-        await refuse(interaction, sentence)
-        return None
-
     @app_commands.command(name="submit_score", description="Set your score for a slot of the running event")
     @app_commands.describe(
         slot="Which slot the score is for",
@@ -241,7 +241,7 @@ class Submissions(commands.Cog):
         except ValueError:
             await refuse(interaction, f"Enter your score as a whole number, like 87, or `{DNF}`.")
             return
-        ids = await self._slot_ids(interaction, slot)
+        ids = await slot_ids(interaction, slot)
         if ids is None:
             return
         scheduled_event_id, slot_id = ids
@@ -293,7 +293,7 @@ class Submissions(commands.Cog):
                 f"Enter your time as minutes, seconds and centiseconds, like `{TIME_EXAMPLE}`, or `{DNF}`.",
             )
             return
-        ids = await self._slot_ids(interaction, slot)
+        ids = await slot_ids(interaction, slot)
         if ids is None:
             return
         scheduled_event_id, slot_id = ids
@@ -331,7 +331,7 @@ class Submissions(commands.Cog):
     @app_commands.command(name="delete_submission", description="Remove your result from a slot of the running event")
     @app_commands.describe(slot="Which slot to clear")
     async def delete_submission(self, interaction: discord.Interaction, slot: str) -> None:
-        ids = await self._slot_ids(interaction, slot)
+        ids = await slot_ids(interaction, slot)
         if ids is None:
             return
         scheduled_event_id, slot_id = ids

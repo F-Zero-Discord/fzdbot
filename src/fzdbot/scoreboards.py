@@ -50,13 +50,6 @@ def event_label(event: ScheduledEvent) -> str:
     return f"{date:%Y-%m-%d} | {event['event']}"
 
 
-def track_label(name: str, kind: str) -> str:
-    """`Mirror Big Blue`, `Big Blue`: a name is shared by a standard, a mirror
-    and a classic track, so the type is said wherever it is not standard.
-    """
-    return name if kind == "standard" else f"{kind.capitalize()} {name}"
-
-
 def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVoteWinnerResponse | None:
     """The track one lobby voted in on a race slot. A lobby is a division, and
     `None` is the one lobby of an event that has no divisions.
@@ -65,11 +58,15 @@ def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVote
 
 
 def slot_name(slot: SlotResponse, division_id: int | None = None) -> str:
-    """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (Mirror Sand Ocean)`."""
+    """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (mirror Sand Ocean)`.
+
+    `track_name` is printed as the API answers it: it is the whole of the
+    track's name, `mirror Sand Ocean` for the mirror row.
+    """
     name = f"#{slot['position']} {slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id)
     if winner:
-        name += f" ({track_label(winner['track_name'], winner['track_type'])})"
+        name += f" ({winner['track_name']})"
     return name
 
 

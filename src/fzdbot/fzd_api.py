@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -312,6 +313,15 @@ class FzdApi:
         the API's configuration; nothing here holds an event id.
         """
         return await self._request("GET", "/v1/ggp8/events")
+
+    async def ggp8_and_active_events(self) -> list[EventResponse]:
+        """GGP8's events and whatever is running now, earliest first, each
+        once. What a picker offers when a command is GGP8's but has to be
+        tried on a weekly: the weekly is listed while it runs.
+        """
+        ggp8, active = await asyncio.gather(self.ggp8_events(), self.active_events())
+        events = {event["scheduled_event_id"]: event for event in [*ggp8, *active]}
+        return sorted(events.values(), key=lambda event: event["starts_at"])
 
     async def ggp8_registrations(self) -> list[Ggp8RegistrationResponse]:
         """Everybody currently registered for a GGP8 event, one row per player

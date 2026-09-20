@@ -18,16 +18,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from fzdbot.cogs.submissions import MAX_CHOICE_NAME, MAX_CHOICES, SLOT_VALUE, recency
+from fzdbot.cogs.submissions import MAX_CHOICES, NO_EVENT, NO_SCHEDULE, SLOT_VALUE, choice_name, recency, slot_ids
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
-from fzdbot.scoreboards import event_label, group_label, slot_name, track_label
+from fzdbot.scoreboards import group_label, slot_name
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def _slot_ids(slot: Any) -> tuple[int, int] | None:
+def _typed_slot(slot: Any) -> tuple[int, int] | None:
     match = SLOT_VALUE.match(str(slot or "").strip())
     return (int(match.group(1)), int(match.group(2))) if match else None
 
@@ -38,7 +38,11 @@ class Votes(commands.Cog):
 
     async def slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         """The race slots of every event running now, the one raced most
-        recently first. A prix slot has no vote and is not offered.
+        recently first, labelled as the submission picker labels them but with
+        the whole event's vote only, since the lobby is the division option's
+        to name. A prix slot has no vote and is not offered. One placeholder
+        when there is nothing to pick: no event, or an event whose schedule
+        has not been entered.
         """
         try:
             events = await self.bot.api.active_events()
@@ -46,6 +50,11 @@ class Votes(commands.Cog):
         except FzdApiError as error:
             logger.warning("[votes] slot autocomplete could not read the API: %s", error)
             return []
+
+        if not events:
+            return [app_commands.Choice(name="No event is running right now", value=NO_EVENT)]
+        if not any(schedules):
+            return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
 
         now = datetime.now(UTC)
         slots = sorted(
@@ -58,7 +67,7 @@ class Votes(commands.Cog):
             key=lambda pair: recency(pair[1], now),
         )
         needle = current.casefold()
-        named = [(f"{event_label(event)} {slot_name(slot)}"[:MAX_CHOICE_NAME], event, slot) for event, slot in slots]
+        named = [(choice_name(slot, None), event, slot) for event, slot in slots]
         choices = [
             app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
             for name, event, slot in named
@@ -70,10 +79,12 @@ class Votes(commands.Cog):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """The chosen slot's pair. A slot whose lineup names no tracks takes
-        any track, so there every track is offered; nothing before a slot is
-        chosen.
+        any track, so there every track of the slot's game is offered: the
+        classic rows for a Classic slot, every other row otherwise, since a
+        classic track shares its name with the standard one and only the
+        mode tells them apart. Nothing before a slot is chosen.
         """
-        ids = _slot_ids(interaction.namespace.slot)
+        ids = _typed_slot(interaction.namespace.slot)
         if ids is None:
             return []
         scheduled_event_id, slot_id = ids
@@ -82,15 +93,19 @@ class Votes(commands.Cog):
             slot = next((s for s in schedule if s["slot_id"] == slot_id), None)
             if slot is None:
                 return []
-            tracks = slot["tracks"] or await self.bot.api.tracks()
+            tracks = slot["tracks"] or [
+                track
+                for track in await self.bot.api.tracks()
+                if (track["type"] == "classic") == (slot["mode"] == "Classic")
+            ]
         except FzdApiError as error:
             logger.warning("[votes] track autocomplete could not read the API: %s", error)
             return []
         needle = current.casefold()
         choices = [
-            app_commands.Choice(name=track_label(track["name"], track["type"]), value=str(track["track_id"]))
+            app_commands.Choice(name=track["name"], value=str(track["track_id"]))
             for track in tracks
-            if needle in track_label(track["name"], track["type"]).casefold()
+            if needle in track["name"].casefold()
         ]
         return choices[:MAX_CHOICES]
 
@@ -100,7 +115,7 @@ class Votes(commands.Cog):
         """The chosen slot's event's divisions; nothing for an event without
         them, where the option is left empty.
         """
-        ids = _slot_ids(interaction.namespace.slot)
+        ids = _typed_slot(interaction.namespace.slot)
         if ids is None:
             return []
         try:
@@ -128,11 +143,11 @@ class Votes(commands.Cog):
     async def set_vote(
         self, interaction: discord.Interaction, slot: str, track: str, division: str | None = None
     ) -> None:
-        ids = _slot_ids(slot)
-        if ids is None or not track.strip().isdigit() or (division is not None and not division.strip().isdigit()):
-            await interaction.response.send_message(
-                "Pick the slot, the track and the division from the lists.", ephemeral=True
-            )
+        ids = await slot_ids(interaction, slot)
+        if ids is None:
+            return
+        if not track.strip().isdigit() or (division is not None and not division.strip().isdigit()):
+            await interaction.response.send_message("Pick the track and the division from the lists.", ephemeral=True)
             return
         scheduled_event_id, slot_id = ids
         division_id = int(division) if division is not None else None

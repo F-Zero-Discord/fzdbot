@@ -13,7 +13,6 @@ each tick is also how a restart resumes: nothing is held here that the next
 tick does not read again. Stopping a board early is deleting its message.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -120,17 +119,15 @@ class Scoreboard(commands.Cog):
     async def event_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        """GGP8's events and whatever is running now, earliest first, each once."""
         try:
-            ggp8, active = await asyncio.gather(self.bot.api.ggp8_events(), self.bot.api.active_events())
+            events = await self.bot.api.ggp8_and_active_events()
         except FzdApiError as error:
             logger.warning("[setup_scoreboard] event autocomplete could not read the API: %s", error)
             return []
-        events = {event["scheduled_event_id"]: event for event in [*ggp8, *active]}
         needle = current.casefold()
         choices = [
             app_commands.Choice(name=event_label(event), value=str(event["scheduled_event_id"]))
-            for event in sorted(events.values(), key=lambda event: event["starts_at"])
+            for event in events
             if needle in event_label(event).casefold()
         ]
         return choices[:MAX_CHOICES]

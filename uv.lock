@@ -518,7 +518,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "aiomysql", specifier = ">=0.2.0" },
     { name = "cryptography" },
-    { name = "discord-py", specifier = ">=2.0" },
+    { name = "discord-py", specifier = ">=2.7" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
