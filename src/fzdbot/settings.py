@@ -1,6 +1,8 @@
 import logging
 import sys
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,6 +32,7 @@ class Settings(BaseSettings):
     faq_channel_id: int | None = 1216189837502316565
     scoreboard_display_podium: bool = False
     scoreboard_lines_per_block: int = 8
+    scoreboard_refresh_seconds: int = 10
 
     @field_validator(
         "error_alert_channel_id",
@@ -54,7 +57,7 @@ class Settings(BaseSettings):
         return normalized
 
     @property
-    def db_config(self) -> dict[str, object]:
+    def db_config(self) -> dict[str, Any]:
         return {
             "user": self.db_user,
             "password": self.db_password,
@@ -65,9 +68,26 @@ class Settings(BaseSettings):
         }
 
 
+_env_file = ".env"
+
+
+def use_env(name: str) -> None:
+    """Read `.env.<name>` in place of `.env`, not on top of it: a setting the
+    named file leaves out fails validation rather than being taken from `.env`.
+    pydantic-settings skips an env file that does not exist, so a mistyped
+    name is refused here.
+    """
+    global _env_file
+    path = Path(f".env.{name}")
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} does not exist in {Path.cwd()}")
+    _env_file = str(path)
+    get_settings.cache_clear()
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore
+    return Settings(_env_file=_env_file)  # type: ignore
 
 
 def configure_logging() -> None:

@@ -1,3 +1,4 @@
+import argparse
 import logging
 import sys
 
@@ -8,7 +9,7 @@ from discord.ext import commands
 from fzdbot.error_alerts import send_error_alert
 from fzdbot.fzd_api import FzdApi
 from fzdbot.fzd_db import init_db_pool
-from fzdbot.settings import configure_logging, get_settings
+from fzdbot.settings import configure_logging, get_settings, use_env
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,7 @@ class FZDBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self.tree.on_error = self.on_app_command_error
 
-    async def on_app_command_error(
-        self, interaction: discord.Interaction, error: app_commands.AppCommandError
-    ) -> None:
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         original_error = getattr(error, "original", error)
         logger.error(
             "Unhandled app command error for command=%s user=%s",
@@ -52,7 +51,9 @@ class FZDBot(commands.Bot):
             self.api = FzdApi(settings.fzd_api_base_url, settings.fzd_api_key)
             self.db_pool = await init_db_pool()
             await self.load_extension("fzdbot.cogs.show_scoreboard")
-            await self.load_extension("fzdbot.cogs.scoring")
+            await self.load_extension("fzdbot.cogs.submissions")
+            await self.load_extension("fzdbot.cogs.ggp_submissions")
+            await self.load_extension("fzdbot.cogs.votes")
             await self.load_extension("fzdbot.cogs.events_users_handling")
             await self.load_extension("fzdbot.cogs.event_register")
             await self.load_extension("fzdbot.cogs.ggp8_rivals")
@@ -106,6 +107,15 @@ class FZDBot(commands.Bot):
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(prog="fzdbot")
+    parser.add_argument("--env", metavar="NAME", help="read settings from .env.NAME instead of .env")
+    args = parser.parse_args()
+    if args.env:
+        try:
+            use_env(args.env)
+        except FileNotFoundError as error:
+            parser.error(str(error))
+
     settings = get_settings()
     configure_logging()
     intents = discord.Intents.default()

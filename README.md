@@ -68,15 +68,18 @@ Required settings (no default in code):
 * `DB_USER`
 * `DB_PASSWORD`
 * `DB_NAME`
+* `FZD_API_BASE_URL`
+* `FZD_API_KEY`
 
 Defaulted settings (used automatically if missing from `.env`):
 
 * `DB_HOST` defaults to `localhost`
 * `DB_PORT` defaults to `3306`
 * `LOG_LEVEL` defaults to `INFO`
-* `ERROR_ALERT_CHANNEL_ID` defaults to unset (Discord error alerts disabled)
+* `ERROR_ALERT_CHANNEL_ID` defaults to FZD's alert channel; set it empty to disable Discord error alerts
 * `SCOREBOARD_DISPLAY_PODIUM` defaults to `false`
 * `SCOREBOARD_LINES_PER_BLOCK` defaults to `8`
+* `SCOREBOARD_REFRESH_SECONDS` defaults to `10`: how often a live board set up by `/setup_scoreboard` is re-read and, when its standings changed, edited
 
 What happens when values are missing or empty:
 
@@ -97,3 +100,13 @@ What happens when values are missing or empty:
 ```bash
 uv run fzdbot
 ```
+
+`uv run fzdbot --env NAME` reads `.env.NAME` instead of `.env`:
+
+```bash
+uv run fzdbot --env stage             # against api-stage.fzd.gg
+uv run fzdbot --env stage-local-api   # against a local fzd-api over the stage database
+```
+
+Never run a second instance on the live bot's token. What goes in those files, and how to start the local
+API, is in `AGENTS.md` under "Running locally, against stage or a local API".

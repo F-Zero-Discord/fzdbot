@@ -51,7 +51,7 @@ class LoadView(SessionView):
 
 For events with divisions or teams, we will endeavor to place you in your requested division or team, but we may need to make changes to account for capacity and balance.
 
-In addition to server RULES, Event RULES are designed to foster a fun and competitive environment for all participants. Each event has its own set of rules and instructions. If you have a question, please ask. We only ask that you agree to read and follow the rules for the events you register for. 
+In addition to server RULES, Event RULES are designed to foster a fun and competitive environment for all participants. Each event has its own set of rules and instructions. If you have a question, please ask. We only ask that you agree to read and follow the rules for the events you register for.
 
 Please confirm that you will read and follow the rules for each event you register for."""
 
@@ -102,7 +102,7 @@ class RegisterMenuView(SessionView):
             status = user_event_status(event, user)
             section_text.append(
                 ui.TextDisplay(
-                    content=f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n\t{status['label']}"
+                    content=f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n\t{status['label']}"
                 )
             )
             section_button.append(
@@ -164,7 +164,7 @@ class DivTeamAddView(SessionView):
         container.add_item(ui.Separator(spacing=discord.SeparatorSpacing.small))
 
         # Build dropdown
-        container.add_item(ui.ActionRow(self.div_team_selection(self, div_team_list)))
+        container.add_item(ui.ActionRow(self.DivTeamSelection(self, div_team_list)))
         self.status_text = ui.TextDisplay(content="-")
         container.add_item(self.status_text)
 
@@ -195,13 +195,13 @@ class DivTeamAddView(SessionView):
     #################################
     # Drowdown subclass
     #################################
-    class div_team_selection(ui.Select):
-        def __init__(self, parent_view: SessionView, div_team_list: list[Division] | list[Team]):
+    class DivTeamSelection(ui.Select):
+        def __init__(self, parent_view: "DivTeamAddView", div_team_list: list[Division] | list[Team]):
             self.parent_view = parent_view
 
             options = []
             for div_team in div_team_list:
-                options.append(discord.SelectOption(label=div_team.name, description=None, value=div_team.id))
+                options.append(discord.SelectOption(label=div_team.name, description=None, value=str(div_team.id)))
             super().__init__(options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -230,11 +230,11 @@ class DivTeamAddView(SessionView):
         # Get div_team object selected
         match self.div_team_string:
             case DivTeam.DIVISION:
-                div_team = [dt for dt in self.event.divisions if dt.id == self.choice][0]
+                div_team = next(dt for dt in self.event.divisions if dt.id == self.choice)
             case DivTeam.TEAM:
-                div_team = [dt for dt in self.event.teams if dt.id == self.choice][0]
+                div_team = next(dt for dt in self.event.teams if dt.id == self.choice)
             case _:
-                raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team}")
+                raise ValueError(f"Self.div_team must be 'division' or 'team', not {self.div_team_string}")
 
         # Set statuses
         if div_team.at_capacity:
@@ -273,7 +273,7 @@ class DivTeamEditView(SessionView):
         container.add_item(ui.Separator(spacing=discord.SeparatorSpacing.small))
 
         # Build dropdown part of container
-        container.add_item(ui.ActionRow(self.div_team_selection(self, div_team_list)))
+        container.add_item(ui.ActionRow(self.DivTeamSelection(self, div_team_list)))
         self.status_text = ui.TextDisplay(content="-")
         container.add_item(self.status_text)
 
@@ -312,8 +312,8 @@ class DivTeamEditView(SessionView):
     #################################
     # Drowdown subclass
     #################################
-    class div_team_selection(ui.Select):
-        def __init__(self, parent_view: SessionView, div_team_list: list[Division] | list[Team]):
+    class DivTeamSelection(ui.Select):
+        def __init__(self, parent_view: "DivTeamEditView", div_team_list: list[Division] | list[Team]):
             self.parent_view = parent_view
 
             options = []
@@ -322,7 +322,7 @@ class DivTeamEditView(SessionView):
                     label = f"{div_team.name} (current)"
                 else:
                     label = f"{div_team.name}"
-                options.append(discord.SelectOption(label=label, description=None, value=div_team.id))
+                options.append(discord.SelectOption(label=label, description=None, value=str(div_team.id)))
             super().__init__(options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -351,11 +351,11 @@ class DivTeamEditView(SessionView):
         # Get div_team object selected
         match self.div_team_string:
             case DivTeam.DIVISION:
-                div_team = [d for d in self.event.divisions if d.id == self.choice][0]
+                div_team = next(d for d in self.event.divisions if d.id == self.choice)
             case DivTeam.TEAM:
-                div_team = [t for t in self.event.teams if t.id == self.choice][0]
+                div_team = next(t for t in self.event.teams if t.id == self.choice)
             case _:
-                raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team}")
+                raise ValueError(f"Self.div_team must be 'division' or 'team', not {self.div_team_string}")
 
         # Set statuses
         if div_team.at_capacity:
@@ -389,17 +389,17 @@ class ConfirmView(SessionView):
         # get division/team name
         match div_team_str:
             case DivTeam.DIVISION:
-                if len(event.divisions) == 1:
+                if event.has_solo_division:
                     div_team_str = DivTeam.NEITHER
                     div_team_name = ""
                 else:
-                    div_team_name = [d.name for d in event.divisions if d.id == div_team_id][0]
+                    div_team_name = next(d.name for d in event.divisions if d.id == div_team_id)
             case DivTeam.TEAM:
-                div_team_name = [t.name for t in event.teams if t.id == div_team_id][0]
+                div_team_name = next(t.name for t in event.teams if t.id == div_team_id)
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team_str}")
 
-        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n"
+        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n"
         if div_team_str != DivTeam.NEITHER:
             choice_text += f"**{div_team_str.capitalize()}**\n\t{div_team_name}"
         confirm_text = "### Are you ready! Confirm below."
@@ -439,17 +439,17 @@ class ConfirmWithdrawlView(SessionView):
         # get division/team name
         match div_team_str:
             case DivTeam.DIVISION:
-                if len(event.divisions) == 1:
+                if event.has_solo_division:
                     div_team_str = DivTeam.NEITHER
                     div_team_name = ""
                 else:
-                    div_team_name = [d.name for d in event.divisions if d.id == div_team_id][0]
+                    div_team_name = next(d.name for d in event.divisions if d.id == div_team_id)
             case DivTeam.TEAM:
-                div_team_name = [t.name for t in event.teams if t.id == div_team_id][0]
+                div_team_name = next(t.name for t in event.teams if t.id == div_team_id)
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {div_team_str}")
 
-        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.start_time, 'long')}\n"
+        choice_text = f"### {event.event_name}\n\t{discord_timestamp(event.starts_at, 'long')}\n"
         if div_team_str != DivTeam.NEITHER:
             choice_text += f"**{div_team_str.capitalize()}**\n\t{div_team_name}"
         confirm_text = "### Are you sure you want to withdraw your registration?"
@@ -563,10 +563,10 @@ class ExitView(SessionView):
         for event, div_team_str, div_team_name in summary:
             text += (
                 f"\n### {event.event_name}\n"
-                f"{discord_timestamp(event.start_time, 'full')} "
-                f"({discord_timestamp(event.start_time, 'relative')})"
+                f"{discord_timestamp(event.starts_at, 'full')} "
+                f"({discord_timestamp(event.starts_at, 'relative')})"
             )
-            if div_team_name:
+            if div_team_str and div_team_name:
                 text += f"\n{div_team_str.capitalize()}: **{div_team_name}**"
 
         return text
