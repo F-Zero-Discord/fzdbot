@@ -36,7 +36,7 @@ def detail(ends_at=FUTURE):
         "group_kind": None,
         "groups": [],
         "slots": [],
-        "scoring": {"num_mulligans": 0, "max_time_loss_cs": None},
+        "scoring": {"num_mulligans": 0, "max_time_loss_cs": None, "machine_counts_once": False},
     }
 
 
@@ -48,6 +48,7 @@ def scoreboard(*names):
         "filter": {"division_id": None, "team_id": None},
         "num_mulligans": 0,
         "max_time_loss_cs": None,
+        "machine_counts_once": False,
         "rows": [
             {
                 "display_name": n,

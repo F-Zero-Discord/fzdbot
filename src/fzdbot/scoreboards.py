@@ -97,7 +97,6 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
                 group_label(group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
-                division_id=group_id,
             )
             for group_id, group in groups.items()
         ]
@@ -108,9 +107,7 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
 
     named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
     title = group_label(groups[named]) if named is not None else ""
-    return [
-        _board(detail, scoreboard, title, scoreboard["rows"], podium, division_id=scoreboard["filter"]["division_id"])
-    ]
+    return [_board(detail, scoreboard, title, scoreboard["rows"], podium)]
 
 
 def group_label(group: EventGroupResponse) -> str:
@@ -124,13 +121,11 @@ def _board(
     title: str,
     rows: list[ScoreboardRowResponse],
     podium: bool,
-    division_id: int | None = None,
 ) -> Board:
-    """`division_id` is the lobby whose vote winners head the race slots."""
     timed = scoreboard["scoring_method"] == "time"
     slots = detail["slots"]
     multipliers = {slot["slot_id"]: slot["multiplier"] for slot in slots}
-    board = Board(title, notes=_notes(scoreboard, slots, timed, division_id))
+    board = Board(title, notes=_notes(scoreboard, timed))
     if not rows:
         return board
 
@@ -160,16 +155,14 @@ def _board(
     return board
 
 
-def _notes(
-    scoreboard: ScoreboardResponse, slots: list[SlotResponse], timed: bool, division_id: int | None
-) -> list[str]:
+def _notes(scoreboard: ScoreboardResponse, timed: bool) -> list[str]:
     notes = []
-    if slots:
-        notes.append(" · ".join(_slot_heading(slot, division_id) for slot in slots))
     if timed:
         cap = scoreboard["max_time_loss_cs"]
         capped = f"; {DNF} and {NOT_ENTERED} count {format_loss(cap)}" if cap is not None else ""
         notes.append(f"*Loss to the slot's leader as +s.cc{capped}*")
+    if scoreboard["machine_counts_once"]:
+        notes.append("*Machine Mastery: each machine counts once, best score kept; the rest shown ~~struck~~*")
     dropped = scoreboard["num_mulligans"]
     if dropped:
         which = "result" if dropped == 1 else "results"
@@ -183,11 +176,6 @@ def _team_prefix(groups: dict[int, EventGroupResponse], group_id: int | None) ->
         return "?:"
     group = groups[group_id]
     return f"{group['emote'] or group['name']}:"
-
-
-def _slot_heading(slot: SlotResponse, division_id: int | None) -> str:
-    name = slot_name(slot, division_id)
-    return f"{name} ×{slot['multiplier']}" if slot["multiplier"] != 1 else name
 
 
 def _rank(rank: int | None, podium: bool) -> str:

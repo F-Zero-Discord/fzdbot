@@ -77,6 +77,7 @@ def detail(
     slots: tuple[SlotResponse, ...] | list[SlotResponse] = (),
     num_mulligans: int = 0,
     max_time_loss_cs: int | None = None,
+    machine_counts_once: bool = False,
     method: str = "points",
 ) -> EventDetailResponse:
     return {
@@ -91,7 +92,11 @@ def detail(
         "group_kind": group_kind,
         "groups": list(groups),
         "slots": list(slots),
-        "scoring": {"num_mulligans": num_mulligans, "max_time_loss_cs": max_time_loss_cs},
+        "scoring": {
+            "num_mulligans": num_mulligans,
+            "max_time_loss_cs": max_time_loss_cs,
+            "machine_counts_once": machine_counts_once,
+        },
     }
 
 
@@ -110,6 +115,7 @@ def scoreboard(
         "filter": {"division_id": division_id, "team_id": team_id},
         "num_mulligans": d["scoring"]["num_mulligans"],
         "max_time_loss_cs": d["scoring"]["max_time_loss_cs"],
+        "machine_counts_once": d["scoring"]["machine_counts_once"],
         "rows": rows,
         "team_totals": list(team_totals),
     }
@@ -145,9 +151,30 @@ def test_points_board_marks_multiplier_drops_dnf_and_not_entered():
     assert boards == [
         Board(
             "",
-            notes=["#1 Knight · #2 MP ×3 · #3 Queen · #4 King", "*Lowest 1 result dropped, shown ~~struck~~*"],
+            notes=["*Lowest 1 result dropped, shown ~~struck~~*"],
             lines=["1\\. **Pilot** - **600** [3/4] 300 · 100 ×3 · ~~—~~ · DNF"],
         )
+    ]
+
+
+def test_machine_mastery_footnote_says_why_a_repeat_is_struck():
+    d = detail(slots=[slot(1, 1, "Knight"), slot(2, 2, "Queen")], machine_counts_once=True)
+    rows = [row("Pilot", [result(1, score=300), result(2, score=250, counted=False)], total=300, rank=1)]
+    boards = render_boards(d, scoreboard(d, rows))
+
+    assert boards[0].notes == [
+        "*Machine Mastery: each machine counts once, best score kept; the rest shown ~~struck~~*",
+    ]
+    assert boards[0].lines == ["1\\. **Pilot** - **300** [2/2] 300 · ~~250~~"]
+
+
+def test_machine_mastery_is_noted_before_the_mulligans_it_runs_ahead_of():
+    d = detail(slots=[slot(1, 1, "Knight")], num_mulligans=1, machine_counts_once=True)
+    boards = render_boards(d, scoreboard(d, []))
+
+    assert boards[0].notes == [
+        "*Machine Mastery: each machine counts once, best score kept; the rest shown ~~struck~~*",
+        "*Lowest 1 result dropped, shown ~~struck~~*",
     ]
 
 
@@ -177,7 +204,7 @@ def test_time_board_shows_loss_cap_and_leaves_an_unopened_slot_blank():
     ]
     boards = render_boards(d, scoreboard(d, rows))
 
-    assert boards[0].notes[1] == "*Loss to the slot's leader as +s.cc; DNF and — count +20.00*"
+    assert boards[0].notes == ["*Loss to the slot's leader as +s.cc; DNF and — count +20.00*"]
     assert boards[0].lines == [
         "1\\. **Leader** - **+20.00** [1/3] 1:30.44 +0.00 · — +20.00",
         "2\\. **Chaser** - **+20.52** [2/3] 1:30.96 +0.52 · DNF +20.00",
@@ -251,4 +278,4 @@ def test_weekly_with_no_slots_shows_totals_only():
 
 def test_nobody_on_the_board():
     d = detail(slots=[slot(1, 1, "Knight")])
-    assert render_boards(d, scoreboard(d, [])) == [Board("", notes=["#1 Knight"])]
+    assert render_boards(d, scoreboard(d, [])) == [Board("", notes=[])]

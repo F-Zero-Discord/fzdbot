@@ -193,10 +193,10 @@ so there the option offers nothing and the vote is the whole event's. A track
 is labelled
 `Mirror Big Blue`, type in words, because the name alone is shared by a standard, a mirror and
 a classic track. Once recorded, the submission picker says
-`Race #3 99 Mirror Sand Ocean` and a board heads the slot `#3 99 (Mirror Sand Ocean)`, each for the
+`Race #3 99 Mirror Sand Ocean` and the vote confirmation `#3 99 (Mirror Sand Ocean)`, each for the
 lobby in question: the picker reads the player's group from
 `GET /v1/players/{id}/registrations`, and only when some slot holds a
-division's vote, and a board per division reads its own division's.
+division's vote. A board names no slot, so it shows no vote.
 
 **`/setup_scoreboard` and `/fzd_show` post a board from two reads.**
 `GET /v1/events/{id}` says what the board is — `group_kind`, the groups, the
@@ -205,11 +205,13 @@ slots with their multipliers, the mulligans and the time cap — and
 with `rank`, `total`, `value`, `counted` and `open` already decided.
 `scoreboards.render_boards` turns the pair into lines and decides nothing but
 layout: one embed per division when a division event is read whole, a ranked
-team block above the individuals on a team event, `~~struck~~` on a result a
-mulligan dropped, `×N` on a slot heading with a multiplier, times as `m:ss.cc`
-with the loss to the slot's leader as `+s.cc`, `DNF` and `—` (not entered)
-told apart, and an unopened time slot left blank. Nothing here sums, ranks or
-names an event. `/fzd_show` is the weeklies' command: it offers
+team block above the individuals on a team event, `~~struck~~` on a result the
+API did not count (a mulligan, or a repeated machine under Machine Mastery),
+`×N` on a result with a multiplier, times as `m:ss.cc` with the loss to
+the slot's leader as `+s.cc`, `DNF` and `—` (not entered) told apart, and an
+unopened time slot left blank. The slots are not listed above the standings;
+a player's line carries one token per slot in schedule order. Nothing here
+sums, ranks or names an event. `/fzd_show` is the weeklies' command: it offers
 `GET /v1/event-types?recurring=true`, read per interaction, takes the latest
 event of the chosen type and posts it whole, once.
 
