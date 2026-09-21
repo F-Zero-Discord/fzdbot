@@ -246,6 +246,34 @@ through `error_alerts`, and leaves the row for the next tick. There is no stop
 command: delete the message. Nothing gates who may run it; that is set on the
 command in Discord's integration settings, as for `/set_vote`.
 
+**An event's Discord role is held by whoever is registered for it, and by
+nobody else.** `cogs/event_roles.py` ticks every `EVENT_ROLE_SYNC_SECONDS`:
+`GET /v1/ggp8/registrations` says who is registered, the guild's own member
+list says who holds the role, and the difference is added and removed one
+member at a time, each change logged with the snowflake, the role and the
+direction. Nothing is kept between ticks, so a withdrawal, a restart, a missed
+tick and a role handed out by hand are all corrected by the next one, and the
+first tick after a fresh start is the one-shot that grants the lot.
+`event_roles.py` beside it is the rule with no Discord in it: registered, not
+waitlisted, and named by a snowflake. **Waiting is not being in**, and
+`waitlisted` is the API's own field for it — a player in the queue holds no
+role until a place opens.
+
+`GGP8_EVENT_ROLES` maps a `scheduled_event_id` to a role id; an event absent
+from it is not touched and an empty map leaves the loop stopped, so a
+deployment that should grant nothing configures nothing. Two things have to be
+granted outside this repo, and the first is why the map is not just a setting:
+the **members intent**, privileged and enabled in the application's portal.
+`main.py` asks for it only where the map is not empty, because asking for an
+intent the portal has not granted stops the bot at startup — so configure the
+map and the portal together, or the deployment comes up dead. The second is
+**fzdbot's own role above the roles it hands out**, without which every add is
+refused. A member holding a role above the bot's is refused
+individually — staff who register are exactly that member — and the pass
+carries on. The one guard in the tick is that an event answering no
+registrations takes nothing back: an id configured wrongly and an empty event
+read the same, and a stale role is the cheaper of the two mistakes.
+
 **A player is named by their Discord id.** Every API path takes the snowflake,
 and `users.id` appears nowhere in this repo — nothing here resolves an account,
 and nothing here holds a database user id. Where a row may have to be created,
@@ -328,7 +356,15 @@ DB_PASSWORD=...
 DB_NAME=fzd_stage
 FZD_API_BASE_URL=https://api-stage.fzd.gg
 FZD_API_KEY=...                   # ssh fzd 'sudo cat /etc/fzd-api/issued/stage-fzdbot.key'
+GGP8_EVENT_ROLES={"738": ...}     # stage's event ids to roles made in the test guild;
+                                  # omit it to leave the role sync off
+EVENT_ROLE_SYNC_SECONDS=60        # 300 in the deployment; 60 while watching it work
 ```
+
+A run with `GGP8_EVENT_ROLES` set asks for the members intent, so the *test*
+application needs it granted in its portal or the bot stops at startup, and the
+test bot's own role has to sit above the roles the map names or every add is
+refused with a 403.
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
 run that forgets them stops at startup rather than failing the API commands one at a

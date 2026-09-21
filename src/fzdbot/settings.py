@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     rules_channel_id: int | None = 1216173713012166797
     help_channel_id: int | None = 1216179321497063444
     faq_channel_id: int | None = 1216189837502316565
+    # Which Discord role each GGP8 event grants its registrants: a
+    # `scheduled_event_id` to a role id, as JSON. Empty leaves the sync off, and
+    # an event absent from it is never touched.
+    ggp8_event_roles: dict[int, int] = {}
+    event_role_sync_seconds: int = 300
     scoreboard_display_podium: bool = False
     scoreboard_lines_per_block: int = 8
     scoreboard_refresh_seconds: int = 10

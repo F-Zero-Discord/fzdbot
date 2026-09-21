@@ -57,6 +57,7 @@ class FZDBot(commands.Bot):
             await self.load_extension("fzdbot.cogs.events_users_handling")
             await self.load_extension("fzdbot.cogs.event_register")
             await self.load_extension("fzdbot.cogs.ggp8_rivals")
+            await self.load_extension("fzdbot.cogs.event_roles")
             logger.info("Loaded extensions")
         except Exception as error:
             logger.exception("Failed to load extensions")
@@ -122,6 +123,11 @@ def main() -> None:
     intents.message_content = True  # Required to read message content
     intents.guilds = True
     intents.messages = True
+    # The event-role sync reads who holds a role, which is the guild's member
+    # list. That intent is privileged: asking for one the application's portal
+    # has not granted stops the bot at startup, so it is asked for only where a
+    # role is configured to sync.
+    intents.members = bool(settings.ggp8_event_roles)
 
     client = FZDBot(command_prefix="!", intents=intents)
     client.run(token=settings.discord_token)
