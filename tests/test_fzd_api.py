@@ -142,14 +142,12 @@ def test_event_detail_and_scoreboard_requests():
 
         assert await client.event_detail(14) == {"scheduled_event_id": 14}
         await client.scoreboard(14)
-        await client.scoreboard(14, division_id=7)
-        await client.scoreboard(14, team_id=12)
+        await client.scoreboard(14)
 
         assert [call[:3] for call in session.calls] == [
             ("GET", "https://api.example.test/v1/events/14", None),
             ("GET", "https://api.example.test/v1/events/14/scoreboard", None),
-            ("GET", "https://api.example.test/v1/events/14/scoreboard?division_id=7", None),
-            ("GET", "https://api.example.test/v1/events/14/scoreboard?team_id=12", None),
+            ("GET", "https://api.example.test/v1/events/14/scoreboard", None),
         ]
 
     asyncio.run(run())

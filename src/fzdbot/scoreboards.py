@@ -29,10 +29,13 @@ class Board:
     """One embed's worth: what the title says after the event's name, the
     lines above the standings, and the standings one line per player, a
     ranked team block first on a team event. `lines` is empty when nobody
-    has a result.
+    has a result. `group_id` is the division the board is of, and `None` on
+    the one board of an event that has no divisions and on the board of
+    players a division event lists with no division.
     """
 
     title: str
+    group_id: int | None = None
     notes: list[str] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
 
@@ -82,14 +85,15 @@ def format_loss(loss_cs: int) -> str:
 
 
 def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *, podium: bool = False) -> list[Board]:
-    """One board per division when a division event is read unfiltered, since
-    four divisions in one embed exceed its field limits; otherwise one board.
+    """One board per division on a division event, since four divisions in one
+    embed exceed its field limits; one board otherwise, a team event included,
+    where the teams are ranked above the individuals on the single board.
     Players a division event lists with no division get a board of their own,
     after the divisions, and only when there are any. `podium` swaps the top
     three ranks for medal emotes and rules a line under them.
     """
     groups = {group["group_id"]: group for group in detail["groups"]}
-    if scoreboard["group_kind"] == "division" and scoreboard["filter"]["division_id"] is None:
+    if scoreboard["group_kind"] == "division":
         boards = [
             _board(
                 detail,
@@ -97,6 +101,7 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
                 group_label(group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
+                group_id=group_id,
             )
             for group_id, group in groups.items()
         ]
@@ -105,9 +110,7 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
             boards.append(_board(detail, scoreboard, "No division", unassigned, podium))
         return boards
 
-    named = scoreboard["filter"]["division_id"] or scoreboard["filter"]["team_id"]
-    title = group_label(groups[named]) if named is not None else ""
-    return [_board(detail, scoreboard, title, scoreboard["rows"], podium)]
+    return [_board(detail, scoreboard, "", scoreboard["rows"], podium)]
 
 
 def group_label(group: EventGroupResponse) -> str:
@@ -121,16 +124,18 @@ def _board(
     title: str,
     rows: list[ScoreboardRowResponse],
     podium: bool,
+    *,
+    group_id: int | None = None,
 ) -> Board:
     timed = scoreboard["scoring_method"] == "time"
     slots = detail["slots"]
     multipliers = {slot["slot_id"]: slot["multiplier"] for slot in slots}
-    board = Board(title, notes=_notes(scoreboard, timed))
+    board = Board(title, group_id, notes=_notes(scoreboard, timed))
     if not rows:
         return board
 
     groups = {group["group_id"]: group for group in detail["groups"]}
-    if scoreboard["group_kind"] == "team" and scoreboard["filter"]["team_id"] is None:
+    if scoreboard["group_kind"] == "team":
         for team in scoreboard["team_totals"]:
             group = groups[team["group_id"]]
             name = f"{group['emote'] or ''} {group['name']}".strip()

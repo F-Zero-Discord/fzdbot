@@ -230,9 +230,7 @@ def test_division_event_unfiltered_is_one_board_per_division_in_order():
         ["1\\. **Bob** - **20** [1/1] 20"],
         ["1\\. **Cid** - **5** [1/1] 5"],
     ]
-
-    narrowed = render_boards(d, scoreboard(d, rows[1:2], division_id=26))
-    assert [(b.title, b.lines) for b in narrowed] == [("Novice", ["1\\. **Bob** - **20** [1/1] 20"])]
+    assert [b.group_id for b in boards] == [27, 26, None]
 
 
 def test_team_event_ranks_teams_above_individuals():
@@ -260,12 +258,6 @@ def test_team_event_ranks_teams_above_individuals():
         "<:b:1>: **Bob** - **50** [1/1] 50",
         "<:b:1>: **Cid** - **45** [1/1] 45",
     ]
-
-
-def test_a_narrowed_board_is_titled_by_its_group():
-    groups = [{"group_id": 25, "name": "Ashes", "alt_name": None, "emote": None, "display_order": 1}]
-    d = detail(group_kind="division", groups=groups)
-    assert [b.title for b in render_boards(d, scoreboard(d, [], division_id=25))] == ["Ashes"]
 
 
 def test_weekly_with_no_slots_shows_totals_only():

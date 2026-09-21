@@ -56,9 +56,14 @@ So "simple" means simple to understand, not simple to write:
   subscripts chained into untyped values, a search for what a field already
   holds, a comprehension doing three things — is rewritten, not commented.
   A comment is for what the code cannot say (see "Comments").
-- Do not add a step unless it is obviously needed, and prefer readable code
-  over code that guards against concurrency, race conditions, or edge cases
-  that the system's scale makes negligible.
+- **Let it fail where the failure is legible.** Before adding a guard, say what
+  happens without it. Where that is an exception whose message names its own
+  cause — Discord refusing an eleventh embed, the API answering 409 — the
+  exception is the better version: it costs one afternoon, once, and only if it
+  happens, while the guard costs every reader who meets it. Write the plain
+  line. A guard arrives when someone has *seen* the failure, not when a limit is
+  known to exist: the same evidence that retires one is what admits it. The
+  exceptions are the two this section names.
 
 When to add, and when to remove:
 
@@ -203,29 +208,37 @@ division's vote. A board names no slot, so it shows no vote.
 slots with their multipliers, the mulligans and the time cap — and
 `GET /v1/events/{id}/scoreboard` says what is on it, the same for any caller,
 with `rank`, `total`, `value`, `counted` and `open` already decided.
-`scoreboards.render_boards` turns the pair into lines and decides nothing but
-layout: one embed per division when a division event is read whole, a ranked
-team block above the individuals on a team event, `~~struck~~` on a result the
-API did not count (a mulligan, or a repeated machine under Machine Mastery),
-`×N` on a result with a multiplier, times as `m:ss.cc` with the loss to
-the slot's leader as `+s.cc`, `DNF` and `—` (not entered) told apart, and an
-unopened time slot left blank. The slots are not listed above the standings;
-a player's line carries one token per slot in schedule order. Nothing here
-sums, ranks or names an event. `/fzd_show` is the weeklies' command: it offers
+The scoreboard is read once and whole: a division event answers every division
+and a team event every team, so nothing here asks the API to narrow to one
+group. `scoreboards.render_boards` turns the pair into boards and decides
+nothing but layout: one per division on a division event, each carrying the
+`group_id` it is of, a ranked team block above the individuals on a team
+event's single board, `~~struck~~` on a result the API did not count (a
+mulligan, or a repeated machine under Machine Mastery), `×N` on a result with a
+multiplier, times as `m:ss.cc` with the loss to the slot's leader as `+s.cc`,
+`DNF` and `—` (not entered) told apart, and an unopened time slot left blank.
+The slots are not listed above the standings; a player's line carries one token
+per slot in schedule order. Nothing here sums, ranks or names an event. Both
+commands build their embeds from those boards and mark an event past its
+`ends_at` `**Final results**`. `/fzd_show` is the weeklies' command: it offers
 `GET /v1/event-types?recurring=true`, read per interaction, takes the latest
-event of the chosen type and posts it whole, once.
+event of the chosen type and posts every board of it at once, one embed each.
 
 **`/setup_scoreboard` posts a board that keeps itself current.** It offers
-GGP8's events and whatever is running, and a chosen event's groups. Run in the
-channel the board should live in, it sends one message per board with
-`channel.send` — every division of a division event when no group is named,
-otherwise one — and registers each with `PUT /v1/scoreboards/{message_id}`
-(`channel_id`, `scheduled_event_id`, the `division_id` or `team_id`). Which
+GGP8's events and whatever is running, and a division of the chosen event where
+it has divisions. **A live board is one board**, so a division event takes the
+division the board is for and the command refuses without one; an event with no
+divisions takes none, and a team event's one board holds every team. Run in the
+channel the board should live in, it sends that one message with `channel.send`
+and registers it with `PUT /v1/scoreboards/{message_id}` (`channel_id`,
+`scheduled_event_id`, the `division_id`). Setting up four divisions is four
+runs. Which
 messages are live is the API's to hold: one `discord.ext.tasks.loop` in
 `cogs/show_scoreboard.py`, every `SCOREBOARD_REFRESH_SECONDS` (default 10),
-reads `GET /v1/scoreboards`, renders each row from the same two reads and edits
-the message through `get_partial_messageable(...).get_partial_message(...)`
-where the render changed. Reading the registry each tick is the whole restart
+reads `GET /v1/scoreboards`, renders each row from the same two reads — one
+pair per event however many of its boards are live — and edits the message
+through `get_partial_messageable(...).get_partial_message(...)` where the
+render changed. Reading the registry each tick is the whole restart
 path. Past the detail's `ends_at` a board is drawn once more with
 `**Final results**` and its row `DELETE`d; a `NotFound` on edit, or a 404 on
 the event, deletes the row too. Anything else logs, alerts once per board

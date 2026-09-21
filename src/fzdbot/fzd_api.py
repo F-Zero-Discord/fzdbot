@@ -207,20 +207,13 @@ class FzdApi:
         """
         return await self._request("GET", f"/v1/events/{scheduled_event_id}")
 
-    async def scoreboard(
-        self, scheduled_event_id: int, *, division_id: int | None = None, team_id: int | None = None
-    ) -> ScoreboardResponse:
-        """The standings, the same for any caller. Unfiltered, a division
-        event answers every division in group order, each ranked within
-        itself; one of `division_id` or `team_id` narrows to that group, and
-        the API refuses the kind the event does not have.
+    async def scoreboard(self, scheduled_event_id: int) -> ScoreboardResponse:
+        """The standings, the same for any caller: a division event answers
+        every division in group order, each ranked within itself, and a team
+        event every team. One read answers every board the event draws, so
+        nothing here asks the API to narrow to one group.
         """
-        path = f"/v1/events/{scheduled_event_id}/scoreboard"
-        if division_id is not None:
-            path += f"?division_id={division_id}"
-        elif team_id is not None:
-            path += f"?team_id={team_id}"
-        return await self._request("GET", path)
+        return await self._request("GET", f"/v1/events/{scheduled_event_id}/scoreboard")
 
     async def event_types(self, recurring: bool | None = None) -> list[EventTypeResponse]:
         """Every event definition, or only the weeklies (`True`) or the

@@ -82,8 +82,8 @@ class Api:
             raise self.detail
         return self.detail
 
-    async def scoreboard(self, event_id, *, division_id=None, team_id=None):
-        self.reads.append(("scoreboard", event_id, division_id))
+    async def scoreboard(self, event_id):
+        self.reads.append(("scoreboard", event_id))
         return self.board
 
     async def stop_scoreboard(self, message_id):
@@ -153,7 +153,7 @@ def test_an_unchanged_board_is_edited_once_and_two_boards_of_one_event_share_rea
 
     assert [len(m.edits) for m in bot.messages.values()] == [1, 1]
     assert bot.messages[11].edits[0].fields[0].value == "1\\. **Ann** - **10**\n"
-    assert api.reads == [("detail", 1), ("scoreboard", 1, None)] * 3
+    assert api.reads == [("detail", 1), ("scoreboard", 1)] * 3
     assert api.stopped == [] and alerts == []
 
 

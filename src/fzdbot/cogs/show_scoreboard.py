@@ -3,14 +3,17 @@
 Both read the event detail and the scoreboard from the API and hand the two to
 `scoreboards.render_boards`; the bot holds no event id and no group id.
 
-`/fzd_show` posts a snapshot. `/setup_scoreboard` posts a board that stays
-current: one message per board, sent to the channel the command was run in and
-registered with the API under its message id. One loop re-reads the registry
-every `scoreboard_refresh_seconds`, renders every registered board and edits
-the message where the render changed, until the event's `ends_at`, when the
-board is drawn once more as final and its row deleted. Reading the registry
-each tick is also how a restart resumes: nothing is held here that the next
-tick does not read again. Stopping a board early is deleting its message.
+A live board is one board, so `/setup_scoreboard` takes the division on an
+event that has divisions and posts that one message, registered with the API
+under its message id. `/fzd_show` posts every board of its event at once, as
+one embed each, and registers nothing.
+
+One loop re-reads the registry every `scoreboard_refresh_seconds`, renders
+every registered board and edits the message where the render changed, until
+the event's `ends_at`, when the board is drawn once more as final and its row
+deleted. Reading the registry each tick is also how a restart resumes: nothing
+is held here that the next tick does not read again. Stopping a board early is
+deleting its message.
 """
 
 import logging
@@ -25,7 +28,7 @@ from fzdbot.error_alerts import send_error_alert
 from fzdbot.formatters import format_discord_timestamp, format_scoreboard_for_discord_embed
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
-from fzdbot.scoreboards import event_label, render_boards
+from fzdbot.scoreboards import Board, event_label, render_boards
 from fzdbot.settings import get_settings
 
 thumbnail = "https://media.discordapp.net/attachments/1399501477608951933/1400792457007861800/Supernova_Server_Icon.png?ex=689c6da3&is=689b1c23&hm=68b8d8790d30689fbad0dfb9341c78921ecf9afecc5919880c81680329c32644&=&format=webp&quality=lossless&width=1024&height=1024"
@@ -33,11 +36,10 @@ thumbnail = "https://media.discordapp.net/attachments/1399501477608951933/140079
 logger = logging.getLogger(__name__)
 
 MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
-MAX_EMBEDS = 10  # and at most 10 embeds per message
 
 
-type Reads = dict[int, tuple[EventDetailResponse, dict[tuple[int | None, int | None], ScoreboardResponse]]]
-"""One tick's reads: the detail per event, and the scoreboard per (event, group)."""
+type Reads = dict[int, tuple[EventDetailResponse, ScoreboardResponse]]
+"""One tick's reads: the detail and the whole scoreboard, per event."""
 
 
 def _group_choice(group: EventGroupResponse) -> app_commands.Choice[str]:
@@ -54,39 +56,33 @@ def _find_group(detail: EventDetailResponse, group: str) -> EventGroupResponse |
     return None
 
 
-def _live_filters(detail: EventDetailResponse, group: str | None) -> list[dict[str, int]] | None:
-    """What each live board of the event is narrowed to: the named group, or
-    with none named, every division of a division event and the whole event
-    otherwise. `None` when the name matches no group.
+def _boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse) -> dict[int | None, Board]:
+    """Every board the event draws, in order, by the division it is of. The
+    `None` key is the one board of an event without divisions, and on a
+    division event the board of the players it lists with no division.
     """
-    if group is not None:
-        chosen = _find_group(detail, group)
-        if chosen is None:
-            return None
-        return [{f"{detail['group_kind']}_id": chosen["group_id"]}]
-    if detail["group_kind"] == "division":
-        return [{"division_id": group["group_id"]} for group in detail["groups"]]
-    return [{}]
+    boards = render_boards(detail, scoreboard, podium=get_settings().scoreboard_display_podium)
+    return {board.group_id: board for board in boards}
 
 
-def _embeds(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *, final: bool = False) -> list[discord.Embed]:
+def _ended(detail: EventDetailResponse, now: datetime) -> bool:
+    return now >= datetime.fromisoformat(detail["ends_at"])
+
+
+def _embed(detail: EventDetailResponse, board: Board, *, final: bool) -> discord.Embed:
     played = f"*Played on {format_discord_timestamp(datetime.fromisoformat(detail['starts_at']))}*"
     heading = [played, "**Final results**"] if final else [played]
-    settings = get_settings()
-    embeds = []
-    for board in render_boards(detail, scoreboard, podium=settings.scoreboard_display_podium):
-        title = f"{event_label(detail)} - {board.title}" if board.title else event_label(detail)
-        embed = discord.Embed(title=title, description="\n".join([*heading, *board.notes]))
-        if not board.lines:
-            embed.add_field(name="", value="NO RESULTS TO DISPLAY YET", inline=False)
-        else:
-            embed.set_thumbnail(url=thumbnail)
-            for block in format_scoreboard_for_discord_embed(
-                board.lines, max_num_lines=settings.scoreboard_lines_per_block
-            ):
-                embed.add_field(name="", value=block, inline=False)
-        embeds.append(embed)
-    return embeds
+    title = f"{event_label(detail)} - {board.title}" if board.title else event_label(detail)
+    embed = discord.Embed(title=title, description="\n".join([*heading, *board.notes]))
+    if not board.lines:
+        embed.add_field(name="", value="NO RESULTS TO DISPLAY YET", inline=False)
+        return embed
+    embed.set_thumbnail(url=thumbnail)
+    for block in format_scoreboard_for_discord_embed(
+        board.lines, max_num_lines=get_settings().scoreboard_lines_per_block
+    ):
+        embed.add_field(name="", value=block, inline=False)
+    return embed
 
 
 class Scoreboard(commands.Cog):
@@ -146,6 +142,8 @@ class Scoreboard(commands.Cog):
         except FzdApiError as error:
             logger.warning("[setup_scoreboard] group autocomplete could not read the API: %s", error)
             return []
+        if detail["group_kind"] != "division":
+            return []
         needle = current.casefold()
         choices = [_group_choice(group) for group in detail["groups"] if needle in group["name"].casefold()]
         return choices[:MAX_CHOICES]
@@ -159,7 +157,7 @@ class Scoreboard(commands.Cog):
             await interaction.response.send_message(sentence, ephemeral=True)
 
     async def _post(self, interaction: discord.Interaction, scheduled_event_id: int) -> None:
-        """Read the event and its whole board and post the embeds, ten to a message."""
+        """Read the event and its whole board and post it."""
         try:
             detail = await self.bot.api.event_detail(scheduled_event_id)
             scoreboard = await self.bot.api.scoreboard(scheduled_event_id)
@@ -168,15 +166,15 @@ class Scoreboard(commands.Cog):
             await self._refuse(interaction, error.refusal())
             return
 
-        embeds = _embeds(detail, scoreboard)
-        for start in range(0, len(embeds), MAX_EMBEDS):
-            await interaction.followup.send(embeds=embeds[start : start + MAX_EMBEDS])
+        final = _ended(detail, datetime.now(UTC))
+        boards = _boards(detail, scoreboard)
+        await interaction.followup.send(embeds=[_embed(detail, board, final=final) for board in boards.values()])
 
     @app_commands.command(
         name="setup_scoreboard",
         description="Post an event's scoreboard here and keep it current until the event ends",
     )
-    @app_commands.describe(event="Which event", group="One division or team; leave empty for every group")
+    @app_commands.describe(event="Which event", group="Which division; an event without divisions needs none")
     async def setup_scoreboard(self, interaction: discord.Interaction, event: str, group: str | None = None):
         if not event.strip().isdigit():
             await self._refuse(interaction, "Pick an event from the list.")
@@ -191,22 +189,26 @@ class Scoreboard(commands.Cog):
         scheduled_event_id = int(event)
         try:
             detail = await self.bot.api.event_detail(scheduled_event_id)
-            filters = _live_filters(detail, group)
-            if filters is None:
-                await self._refuse(interaction, "Pick a group from the list.")
+            if detail["group_kind"] == "division" and group is None:
+                await self._refuse(interaction, "This event has divisions; name the one this board is for.")
                 return
-            for narrowed in filters:
-                scoreboard = await self.bot.api.scoreboard(scheduled_event_id, **narrowed)
-                message = await channel.send(embed=_embeds(detail, scoreboard)[0])
-                await self.bot.api.register_scoreboard(message.id, channel.id, scheduled_event_id, **narrowed)
+            chosen = _find_group(detail, group) if group is not None else None
+            scoreboard = await self.bot.api.scoreboard(scheduled_event_id)
+            board = _boards(detail, scoreboard).get(chosen["group_id"] if chosen is not None else None)
+            if board is None:
+                await self._refuse(interaction, "Pick a division from the list.")
+                return
+            message = await channel.send(embed=_embed(detail, board, final=_ended(detail, datetime.now(UTC))))
+            await self.bot.api.register_scoreboard(
+                message.id, channel.id, scheduled_event_id, division_id=board.group_id
+            )
         except FzdApiError as error:
             logger.warning("[setup_scoreboard] refused for event=%s: %s", scheduled_event_id, error)
             await self._refuse(interaction, error.refusal())
             return
-        boards = "one board" if len(filters) == 1 else f"{len(filters)} boards"
         await interaction.followup.send(
-            f"Posted {boards} for {event_label(detail)}. Each updates every "
-            f"{get_settings().scoreboard_refresh_seconds} s until the event ends; delete a message to stop its board.",
+            f"Posted the board for {event_label(detail)}. It updates every "
+            f"{get_settings().scoreboard_refresh_seconds} s until the event ends; delete the message to stop it.",
             ephemeral=True,
         )
 
@@ -241,14 +243,11 @@ class Scoreboard(commands.Cog):
     ) -> None:
         message_id = int(board["message_id"])
         event_id = board["scheduled_event_id"]
-        narrowed = (board["division_id"], board["team_id"])
         try:
             if event_id not in reads:
-                reads[event_id] = (await self.bot.api.event_detail(event_id), {})
-            detail, scoreboards = reads[event_id]
-            if narrowed not in scoreboards:
-                scoreboards[narrowed] = await self.bot.api.scoreboard(
-                    event_id, division_id=narrowed[0], team_id=narrowed[1]
+                reads[event_id] = (
+                    await self.bot.api.event_detail(event_id),
+                    await self.bot.api.scoreboard(event_id),
                 )
         except FzdApiError as error:
             if error.status != 404:
@@ -258,8 +257,10 @@ class Scoreboard(commands.Cog):
             await self._stop(message_id)
             return
 
-        final = now >= datetime.fromisoformat(detail["ends_at"])
-        embed = _embeds(detail, scoreboards[narrowed], final=final)[0]
+        detail, scoreboard = reads[event_id]
+        drawn = _boards(detail, scoreboard)[board["division_id"]]
+        final = _ended(detail, now)
+        embed = _embed(detail, drawn, final=final)
         rendered = embed.to_dict()
         if self._rendered.get(message_id) != rendered:
             message = self.bot.get_partial_messageable(int(board["channel_id"])).get_partial_message(message_id)
