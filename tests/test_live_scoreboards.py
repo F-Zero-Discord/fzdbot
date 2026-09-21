@@ -65,6 +65,23 @@ def scoreboard(*names):
     }
 
 
+def division_detail(ends_at=FUTURE):
+    """An event with divisions draws one board per division, and none for the event itself."""
+    return detail(ends_at) | {
+        "group_kind": "division",
+        "groups": [{"group_id": 26, "name": "Master", "alt_name": None, "emote": None, "display_order": 1}],
+    }
+
+
+def division_scoreboard():
+    """Every row in a division, so no board is drawn for players with none."""
+    board = scoreboard("Ann")
+    board["group_kind"] = "division"
+    for row in board["rows"]:
+        row["group_id"] = 26
+    return board
+
+
 class Api:
     def __init__(self, boards, detail, scoreboard):
         self.boards = boards
@@ -214,3 +231,12 @@ def test_an_unreachable_registry_skips_the_tick(alerts):
     tick(Bot(api))
 
     assert api.reads == [] and alerts == []
+
+
+def test_a_board_the_event_draws_no_longer_is_stopped(alerts):
+    api = Api([board(11)], division_detail(), division_scoreboard())
+    bot = Bot(api)
+    tick(bot, times=2)
+
+    assert api.stopped == [11, 11]
+    assert bot.messages == {} and alerts == []

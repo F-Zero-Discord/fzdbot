@@ -240,11 +240,12 @@ pair per event however many of its boards are live — and edits the message
 through `get_partial_messageable(...).get_partial_message(...)` where the
 render changed. Reading the registry each tick is the whole restart
 path. Past the detail's `ends_at` a board is drawn once more with
-`**Final results**` and its row `DELETE`d; a `NotFound` on edit, or a 404 on
-the event, deletes the row too. Anything else logs, alerts once per board
-through `error_alerts`, and leaves the row for the next tick. There is no stop
-command: delete the message. Nothing gates who may run it; that is set on the
-command in Discord's integration settings, as for `/set_vote`.
+`**Final results**` and its row `DELETE`d; a `NotFound` on edit, a 404 on the
+event, or a division the event draws no board for, deletes the row too.
+Anything else logs, alerts once per board through `error_alerts`, and leaves
+the row for the next tick. There is no stop command: delete the message.
+Nothing gates who may run it; that is set on the command in Discord's
+integration settings, as for `/set_vote`.
 
 **An event's Discord role is held by whoever is registered for it, and by
 nobody else.** `cogs/event_roles.py` ticks every `EVENT_ROLE_SYNC_SECONDS`:

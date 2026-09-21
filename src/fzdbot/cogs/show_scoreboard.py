@@ -258,7 +258,17 @@ class Scoreboard(commands.Cog):
             return
 
         detail, scoreboard = reads[event_id]
-        drawn = _boards(detail, scoreboard)[board["division_id"]]
+        drawn = _boards(detail, scoreboard).get(board["division_id"])
+        if drawn is None:
+            # The event draws no board for this division: nothing to draw, now or later.
+            logger.warning(
+                "[live scoreboard] message=%s stopped, event=%s draws no board for division=%s",
+                message_id,
+                event_id,
+                board["division_id"],
+            )
+            await self._stop(message_id)
+            return
         final = _ended(detail, now)
         embed = _embed(detail, drawn, final=final)
         rendered = embed.to_dict()
