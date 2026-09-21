@@ -142,6 +142,10 @@ class EventRoles(commands.Cog):
         A member holding a role above the bot's own cannot be edited at all, and
         the staff who register for an event are exactly those members, so their
         refusal must not take everybody after them in the pass with it.
+
+        Discord's own text is logged because the two refusals that look alike
+        here read differently there: missing Manage Roles is refused for every
+        member of every event, a role above the bot's for one member of one.
         """
         direction = "+" if add else "-"
         try:
@@ -149,13 +153,15 @@ class EventRoles(commands.Cog):
                 await member.add_roles(role, reason=REASON)
             else:
                 await member.remove_roles(role, reason=REASON)
-        except discord.Forbidden:
+        except discord.Forbidden as refusal:
             logger.warning(
-                "[event roles] %s%s refused for %s on event=%s",
+                "[event roles] %s%s refused for %s on event=%s: %s (code %s)",
                 direction,
                 role.name,
                 member.id,
                 scheduled_event_id,
+                refusal.text,
+                refusal.code,
             )
             return
         logger.info("[event roles] %s%s for %s on event=%s", direction, role.name, member.id, scheduled_event_id)

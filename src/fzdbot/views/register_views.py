@@ -18,6 +18,15 @@ def channel_mention(channel_id: int | None, fallback: str) -> str:
     return f"<#{channel_id}>" if channel_id else fallback
 
 
+WITHDRAW_NOTE = (
+    "NOTE: If you withdraw and this event has a waitlist, your slot will be "
+    "immediately given to someone on the waitlist"
+)
+"""Shown on every edit screen, whether or not the event has a waitlist: the
+sentence says "if", and which events have one is the API's to know. The API gives
+the place away inside the transaction that frees it, so the warning is literal."""
+
+
 def room_left(div_team: Division | Team) -> str:
     """What the status line says about a division or team that has room in it.
 
@@ -276,6 +285,7 @@ class DivTeamEditView(SessionView):
         container.add_item(ui.ActionRow(self.DivTeamSelection(self, div_team_list)))
         self.status_text = ui.TextDisplay(content="-")
         container.add_item(self.status_text)
+        container.add_item(ui.TextDisplay(WITHDRAW_NOTE))
 
         # Build the button ActionRow
         container.add_item(ui.Separator(spacing=discord.SeparatorSpacing.small))
