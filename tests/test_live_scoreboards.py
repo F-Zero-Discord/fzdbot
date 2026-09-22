@@ -252,7 +252,6 @@ def test_a_board_the_event_draws_no_longer_is_stopped(alerts):
     assert api.stopped == [11, 11]
     assert bot.messages == {} and alerts == []
 
-
 def test_a_board_waiting_for_its_event_is_read_once_and_left_alone(alerts):
     api = Api([board(11)], detail() | {"starts_at": FUTURE}, scoreboard("Ann"))
     bot = Bot(api)
