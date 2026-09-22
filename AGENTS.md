@@ -171,8 +171,8 @@ command again, since a modal submission cannot open a second modal. `Label`,
 **`/ggp_show_submissions` lists the caller's own results on an event, gaps
 included.** Its one option, `event`, autocompletes from GGP8's events and
 whatever is running now — `GET /v1/ggp8/events` and `GET /v1/events/active`,
-merged as `fzd_api.ggp8_and_active_events`, the list `/setup_scoreboard`
-offers too — labelled as `event_label` labels them and carries the event id;
+merged as `fzd_api.ggp8_and_active_events` — labelled as `event_label` labels
+them and carries the event id;
 left out, the event is the one that started most recently, or the first to
 come when none has. Two reads for that event, the schedule and
 `GET /v1/players/{id}/results?scheduled_event_id=N`, are joined on `slot_id`
@@ -219,14 +219,14 @@ multiplier, times as `m:ss.cc` with the loss to the slot's leader as `+s.cc`,
 `DNF` and `—` (not entered) told apart, and an unopened time slot left blank.
 The slots are not listed above the standings; a player's line carries one token
 per slot in schedule order. Nothing here sums, ranks or names an event. Both
-commands build their embeds from those boards and mark an event past its
-`ends_at` `**Final results**`. `/fzd_show` is the weeklies' command: it offers
+commands build their embeds from those boards, and mark an event yet to start
+`**Not started yet**` and one past its `ends_at` `**Final results**`. `/fzd_show` is the weeklies' command: it offers
 `GET /v1/event-types?recurring=true`, read per interaction, takes the latest
 event of the chosen type and posts every board of it at once, one embed each.
 
-**`/setup_scoreboard` posts a board that keeps itself current.** It offers
-GGP8's events and whatever is running, and a division of the chosen event where
-it has divisions. **A live board is one board**, so a division event takes the
+**`/setup_scoreboard` posts a board that keeps itself current.** It offers the
+calendar — `GET /v1/events?days=14`, everything not yet over that starts within
+a fortnight — and a division of the chosen event where it has divisions. **A live board is one board**, so a division event takes the
 division the board is for and the command refuses without one; an event with no
 divisions takes none, and a team event's one board holds every team. Run in the
 channel the board should live in, it sends that one message with `channel.send`
@@ -234,16 +234,24 @@ and registers it with `PUT /v1/scoreboards/{message_id}` (`channel_id`,
 `scheduled_event_id`, the `division_id`). Setting up four divisions is four
 runs. Which
 messages are live is the API's to hold: one `discord.ext.tasks.loop` in
-`cogs/show_scoreboard.py`, every `SCOREBOARD_REFRESH_SECONDS` (default 10),
+`cogs/show_scoreboard.py`, every `SCOREBOARD_REFRESH_SECONDS` (default 10)
+while an event is under way and otherwise sleeping until the next one starts,
+at most an hour, restarted by `/setup_scoreboard` so a new board does not wait,
 reads `GET /v1/scoreboards`, renders each row from the same two reads — one
-pair per event however many of its boards are live — and edits the message
+pair per event however many of its boards are live, and the detail alone for an
+event yet to start, which has nothing on its board — and edits the message
 through `get_partial_messageable(...).get_partial_message(...)` where the
 render changed. Reading the registry each tick is the whole restart
 path. Past the detail's `ends_at` a board is drawn once more with
 `**Final results**` and its row `DELETE`d; a `NotFound` on edit, a 404 on the
 event, or a division the event draws no board for, deletes the row too.
 Anything else logs, alerts once per board through `error_alerts`, and leaves
-the row for the next tick. There is no stop command: delete the message.
+the row for the next tick, except a `Forbidden`: a message this bot may not
+edit is another instance's board or one in a channel it cannot see, so it is
+skipped until a restart rather than alerted on every tick, and the row is left
+for whoever owns it. A board is stopped early by deleting its message, or with
+`/stop_board`, which takes the row out of the registry and leaves the message —
+the way to clear a board whose message this bot cannot delete.
 Nothing gates who may run it; that is set on the command in Discord's
 integration settings, as for `/set_vote`.
 

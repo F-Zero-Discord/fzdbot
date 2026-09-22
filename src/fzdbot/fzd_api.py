@@ -199,6 +199,12 @@ class FzdApi:
     async def active_events(self) -> list[EventResponse]:
         return await self._request("GET", "/v1/events/active")
 
+    async def calendar(self, days: int = 14) -> list[EventResponse]:
+        """Scheduled events not yet over that start within `days`, earliest first:
+        what is on, then what is coming. The list a board is set up from.
+        """
+        return await self._request("GET", f"/v1/events?days={days}")
+
     async def event_detail(self, scheduled_event_id: int) -> EventDetailResponse:
         """The event with what a board needs: `group_kind` (`division`, `team`
         or None), its `groups`, its `slots` with their multipliers, and

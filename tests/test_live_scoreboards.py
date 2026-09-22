@@ -1,16 +1,19 @@
 """The live-scoreboard tick against a fake API and a fake channel."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
 import discord
 import pytest
 
+from fzdbot.api_types import EventDetailResponse
 from fzdbot.cogs import show_scoreboard
 from fzdbot.cogs.show_scoreboard import Scoreboard
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
+from fzdbot.scoreboards import Board
 
 PAST, FUTURE = "2026-09-01T20:00:00Z", "2099-01-01T20:00:00Z"
 
@@ -140,7 +143,9 @@ def http_error(cls, status):
 
 @pytest.fixture
 def alerts(monkeypatch):
-    settings = SimpleNamespace(scoreboard_display_podium=False, scoreboard_lines_per_block=8)
+    settings = SimpleNamespace(
+        scoreboard_display_podium=False, scoreboard_lines_per_block=8, scoreboard_refresh_seconds=10
+    )
     monkeypatch.setattr(show_scoreboard, "get_settings", lambda: settings)
     monkeypatch.setattr("fzdbot.formatters.get_settings", lambda: settings)
     sent = []
@@ -150,6 +155,12 @@ def alerts(monkeypatch):
 
     monkeypatch.setattr(show_scoreboard, "send_error_alert", send)
     return sent
+
+
+def interval(bot, cog=None):
+    """The seconds a tick asks to sleep for."""
+    cog = cog or Scoreboard(cast(FZDBot, bot))
+    return asyncio.run(cog.refresh_boards())
 
 
 def tick(bot, times=1, cog=None):
@@ -195,7 +206,7 @@ def test_a_deleted_message_stops_its_board_without_an_alert(alerts):
 
 def test_one_failing_board_alerts_once_and_does_not_stop_the_next(alerts):
     api = Api([board(11), board(12)], detail(), scoreboard("Ann"))
-    bot = Bot(api, failures={11: http_error(discord.Forbidden, 403)})
+    bot = Bot(api, failures={11: http_error(discord.HTTPException, 500)})
     tick(bot, times=3)
 
     assert len(bot.messages[12].edits) == 1
@@ -240,3 +251,52 @@ def test_a_board_the_event_draws_no_longer_is_stopped(alerts):
 
     assert api.stopped == [11, 11]
     assert bot.messages == {} and alerts == []
+
+
+def test_a_board_waiting_for_its_event_is_read_once_and_left_alone(alerts):
+    api = Api([board(11)], detail() | {"starts_at": FUTURE}, scoreboard("Ann"))
+    bot = Bot(api)
+    tick(bot, times=2)
+
+    assert api.reads == [("detail", 1), ("detail", 1)]
+    assert bot.messages == {} and api.stopped == [] and alerts == []
+
+
+def test_nothing_registered_sleeps_to_the_idle_ceiling(alerts):
+    assert interval(Bot(Api([], detail(), scoreboard()))) == show_scoreboard.IDLE_SECONDS
+
+
+def test_an_event_under_way_keeps_the_refresh_interval(alerts):
+    assert interval(Bot(Api([board(11)], detail(), scoreboard("Ann")))) == 10
+
+
+def test_a_waiting_board_sleeps_until_its_event_starts(alerts):
+    starts_at = datetime.now(UTC) + timedelta(seconds=90)
+    api = Api([board(11)], detail() | {"starts_at": starts_at.isoformat()}, scoreboard("Ann"))
+
+    assert 80 < interval(Bot(api)) <= 91
+
+
+def test_a_failing_board_is_retried_at_the_refresh_interval(alerts):
+    bot = Bot(Api([board(11)], detail(), scoreboard("Ann")), failures={11: http_error(discord.HTTPException, 500)})
+
+    assert interval(bot) == 10
+
+
+def test_a_board_of_an_event_yet_to_start_says_so(alerts):
+    now = datetime.now(UTC)
+    waiting = cast(EventDetailResponse, detail() | {"starts_at": FUTURE})
+    started = cast(EventDetailResponse, detail())
+
+    assert "**Not started yet**" in (show_scoreboard._embed(waiting, Board(""), now=now).description or "")
+    assert "**Not started yet**" not in (show_scoreboard._embed(started, Board(""), now=now).description or "")
+
+
+def test_a_board_out_of_reach_is_skipped_and_lets_the_loop_idle(alerts):
+    api = Api([board(11)], detail(), scoreboard("Ann"))
+    bot = Bot(api, failures={11: http_error(discord.Forbidden, 403)})
+    cog = tick(bot)
+
+    assert interval(bot, cog=cog) == show_scoreboard.IDLE_SECONDS
+    assert api.reads == [("detail", 1), ("scoreboard", 1)]
+    assert api.stopped == [] and alerts == []
