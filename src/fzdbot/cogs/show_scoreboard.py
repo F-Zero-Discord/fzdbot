@@ -229,11 +229,28 @@ class Scoreboard(commands.Cog):
             try:
                 await self._refresh(board, now, reads)
                 self._failing.discard(message_id)
+            except discord.Forbidden as error:
+                # Every registered board is read here, whichever bot posted it,
+                # and a message is editable only by the application that sent
+                # it. So this is another bot's board, or a channel this bot can
+                # no longer see; the row stays registered either way, and the
+                # bot that posted it goes on drawing it.
+                logger.warning(
+                    "[live scoreboard] message=%s event=%s is not this bot's to edit. "
+                    "You can delete the scoreboard for this message to stop",
+                    message_id,
+                    board["scheduled_event_id"],
+                )
+                await self._alert_once(message_id, error, board)
             except Exception as error:
                 logger.exception("[live scoreboard] message=%s event=%s", message_id, board["scheduled_event_id"])
-                if message_id not in self._failing:
-                    self._failing.add(message_id)
-                    await send_error_alert(self.bot, where="live scoreboard", error=error, details=board)
+                await self._alert_once(message_id, error, board)
+
+    async def _alert_once(self, message_id: int, error: Exception, board: LiveScoreboardResponse) -> None:
+        if message_id in self._failing:
+            return
+        self._failing.add(message_id)
+        await send_error_alert(self.bot, where="live scoreboard", error=error, details=board)
 
     async def _refresh(
         self,
