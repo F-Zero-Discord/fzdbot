@@ -8,16 +8,20 @@ event that has divisions and posts that one message, registered with the API
 under its message id. `/fzd_show` posts every board of its event at once, as
 one embed each, and registers nothing.
 
-One loop re-reads the registry every `scoreboard_refresh_seconds`, renders
-every registered board and edits the message where the render changed, until
-the event's `ends_at`, when the board is drawn once more as final and its row
-deleted. Reading the registry each tick is also how a restart resumes: nothing
-is held here that the next tick does not read again. Stopping a board early is
-deleting its message.
+One loop re-reads the registry every `scoreboard_refresh_seconds` while an
+event is under way, renders every registered board whose event has started and
+edits the message where the render changed, until the event's `ends_at`, when
+the board is drawn once more as final and its row deleted. With nothing under
+way it sleeps until the next event starts, at most `IDLE_SECONDS`, and
+`/setup_scoreboard` restarts it so a new board is not left waiting. Reading the registry each tick is also how a restart resumes: nothing
+is held here that the next tick does not read again. A board is stopped early by
+deleting its message, or with `/stop_board` where this bot cannot; a message this
+bot may not edit is left to whoever owns it until a restart.
 """
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -37,9 +41,18 @@ logger = logging.getLogger(__name__)
 
 MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
 
+IDLE_SECONDS = 3600
+"""The longest the loop sleeps when no event is under way: how late it notices a
+board registered by something other than `/setup_scoreboard`, or an event moved
+earlier."""
 
-type Reads = dict[int, tuple[EventDetailResponse, ScoreboardResponse]]
-"""One tick's reads: the detail and the whole scoreboard, per event."""
+
+type Details = dict[int, EventDetailResponse]
+"""One tick's event details, per event."""
+
+type Scoreboards = dict[int, ScoreboardResponse]
+"""One tick's scoreboards, per event. An event yet to start has none: there is
+nothing on a board before it."""
 
 
 def _group_choice(group: EventGroupResponse) -> app_commands.Choice[str]:
@@ -69,9 +82,13 @@ def _ended(detail: EventDetailResponse, now: datetime) -> bool:
     return now >= datetime.fromisoformat(detail["ends_at"])
 
 
-def _embed(detail: EventDetailResponse, board: Board, *, final: bool) -> discord.Embed:
-    played = f"*Played on {format_discord_timestamp(datetime.fromisoformat(detail['starts_at']))}*"
-    heading = [played, "**Final results**"] if final else [played]
+def _embed(detail: EventDetailResponse, board: Board, *, now: datetime) -> discord.Embed:
+    starts_at = datetime.fromisoformat(detail["starts_at"])
+    heading = [f"*Played on {format_discord_timestamp(starts_at)}*"]
+    if now < starts_at:
+        heading.append("**Not started yet**")
+    elif _ended(detail, now):
+        heading.append("**Final results**")
     title = f"{event_label(detail)} - {board.title}" if board.title else event_label(detail)
     embed = discord.Embed(title=title, description="\n".join([*heading, *board.notes]))
     if not board.lines:
@@ -94,6 +111,11 @@ class Scoreboard(commands.Cog):
         # After a restart every board is edited once and may alert once more.
         self._rendered: dict[int, object] = {}
         self._failing: set[int] = set()
+        # Messages this bot cannot edit: another instance's board, or a channel it
+        # cannot see. Skipped until a restart; the registry is not this bot's to clear.
+        self._unreachable: set[int] = set()
+        # Declared, not built: `cog_load` builds it from `_tick`, which reads it back.
+        self.refresh: tasks.Loop[Any]
 
     async def event_type_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -116,7 +138,7 @@ class Scoreboard(commands.Cog):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         try:
-            events = await self.bot.api.ggp8_and_active_events()
+            events = await self.bot.api.calendar()
         except FzdApiError as error:
             logger.warning("[setup_scoreboard] event autocomplete could not read the API: %s", error)
             return []
@@ -166,9 +188,9 @@ class Scoreboard(commands.Cog):
             await self._refuse(interaction, error.refusal())
             return
 
-        final = _ended(detail, datetime.now(UTC))
+        now = datetime.now(UTC)
         boards = _boards(detail, scoreboard)
-        await interaction.followup.send(embeds=[_embed(detail, board, final=final) for board in boards.values()])
+        await interaction.followup.send(embeds=[_embed(detail, board, now=now) for board in boards.values()])
 
     @app_commands.command(
         name="setup_scoreboard",
@@ -198,10 +220,12 @@ class Scoreboard(commands.Cog):
             if board is None:
                 await self._refuse(interaction, "Pick a division from the list.")
                 return
-            message = await channel.send(embed=_embed(detail, board, final=_ended(detail, datetime.now(UTC))))
+            message = await channel.send(embed=_embed(detail, board, now=datetime.now(UTC)))
             await self.bot.api.register_scoreboard(
                 message.id, channel.id, scheduled_event_id, division_id=board.group_id
             )
+            # The loop may be sleeping until a later event; this board is due now.
+            self.refresh.restart()
         except FzdApiError as error:
             logger.warning("[setup_scoreboard] refused for event=%s: %s", scheduled_event_id, error)
             await self._refuse(interaction, error.refusal())
@@ -212,60 +236,81 @@ class Scoreboard(commands.Cog):
             ephemeral=True,
         )
 
-    async def refresh_boards(self) -> None:
+    async def refresh_boards(self) -> float:
         """One tick: every registered board re-read, and edited where its
         render changed. A board's failure is logged, alerted once, and left for
-        the next tick; it stops neither the others nor the loop.
+        the next tick; it stops neither the others nor the loop. Answers the
+        seconds until the loop is next of use.
         """
         try:
             boards = await self.bot.api.live_scoreboards()
         except FzdApiError as error:
             logger.warning("[live scoreboard] could not read the registry: %s", error)
-            return
+            return get_settings().scoreboard_refresh_seconds
         now = datetime.now(UTC)
-        reads: Reads = {}
+        details: Details = {}
+        scoreboards: Scoreboards = {}
+        failed = False
         for board in boards:
             message_id = int(board["message_id"])
+            if message_id in self._unreachable:
+                continue
             try:
-                await self._refresh(board, now, reads)
+                await self._refresh(board, now, details, scoreboards)
                 self._failing.discard(message_id)
-            except discord.Forbidden as error:
-                # Every registered board is read here, whichever bot posted it,
-                # and a message is editable only by the application that sent
-                # it. So this is another bot's board, or a channel this bot can
-                # no longer see; the row stays registered either way, and the
-                # bot that posted it goes on drawing it.
+            except discord.Forbidden:
+                self._unreachable.add(message_id)
                 logger.warning(
-                    "[live scoreboard] message=%s event=%s is not this bot's to edit. "
-                    "You can delete the scoreboard for this message to stop",
+                    "[live scoreboard] message=%s cannot be edited by this bot; leaving its board alone",
                     message_id,
-                    board["scheduled_event_id"],
                 )
-                await self._alert_once(message_id, error, board)
             except Exception as error:
+                failed = True
                 logger.exception("[live scoreboard] message=%s event=%s", message_id, board["scheduled_event_id"])
-                await self._alert_once(message_id, error, board)
+                if message_id not in self._failing:
+                    self._failing.add(message_id)
+                    await send_error_alert(self.bot, where="live scoreboard", error=error, details=board)
+        return self._next_interval(details, now, failed=failed)
 
-    async def _alert_once(self, message_id: int, error: Exception, board: LiveScoreboardResponse) -> None:
-        if message_id in self._failing:
-            return
-        self._failing.add(message_id)
-        await send_error_alert(self.bot, where="live scoreboard", error=error, details=board)
+    def _next_interval(self, details: Details, now: datetime, *, failed: bool) -> float:
+        """The refresh interval while an event is under way, or while a board failed and is
+        worth retrying; otherwise the wait until the next event starts, and `IDLE_SECONDS`
+        with nothing to wait for.
+        """
+        refresh = float(get_settings().scoreboard_refresh_seconds)
+        if failed:
+            return refresh
+        waits = [float(IDLE_SECONDS)]
+        for detail in details.values():
+            starts_at = datetime.fromisoformat(detail["starts_at"])
+            if now < starts_at:
+                waits.append((starts_at - now).total_seconds() + 1)
+            elif now < datetime.fromisoformat(detail["ends_at"]):
+                waits.append(refresh)
+        return max(1.0, min(waits))
+
+    async def _tick(self) -> None:
+        """`tasks.loop` sleeps by the interval, so each tick sets the next one."""
+        self.refresh.change_interval(seconds=await self.refresh_boards())
 
     async def _refresh(
         self,
         board: LiveScoreboardResponse,
         now: datetime,
-        reads: Reads,
+        details: Details,
+        scoreboards: Scoreboards,
     ) -> None:
         message_id = int(board["message_id"])
         event_id = board["scheduled_event_id"]
         try:
-            if event_id not in reads:
-                reads[event_id] = (
-                    await self.bot.api.event_detail(event_id),
-                    await self.bot.api.scoreboard(event_id),
-                )
+            if event_id not in details:
+                details[event_id] = await self.bot.api.event_detail(event_id)
+            detail = details[event_id]
+            if now < datetime.fromisoformat(detail["starts_at"]):
+                # A board of an event yet to start carries what the command drew on it.
+                return
+            if event_id not in scoreboards:
+                scoreboards[event_id] = await self.bot.api.scoreboard(event_id)
         except FzdApiError as error:
             if error.status != 404:
                 raise
@@ -274,10 +319,20 @@ class Scoreboard(commands.Cog):
             await self._stop(message_id)
             return
 
-        detail, scoreboard = reads[event_id]
-        drawn = _boards(detail, scoreboard)[board["division_id"]]
+        scoreboard = scoreboards[event_id]
+        drawn = _boards(detail, scoreboard).get(board["division_id"])
+        if drawn is None:
+            # The event draws no board for this division: nothing to draw, now or later.
+            logger.warning(
+                "[live scoreboard] message=%s stopped, event=%s draws no board for division=%s",
+                message_id,
+                event_id,
+                board["division_id"],
+            )
+            await self._stop(message_id)
+            return
         final = _ended(detail, now)
-        embed = _embed(detail, drawn, final=final)
+        embed = _embed(detail, drawn, now=now)
         rendered = embed.to_dict()
         if self._rendered.get(message_id) != rendered:
             message = self.bot.get_partial_messageable(int(board["channel_id"])).get_partial_message(message_id)
@@ -294,6 +349,56 @@ class Scoreboard(commands.Cog):
     async def _stop(self, message_id: int) -> None:
         await self.bot.api.stop_scoreboard(message_id)
         self._rendered.pop(message_id, None)
+        self._failing.discard(message_id)
+        self._unreachable.discard(message_id)
+
+    def _board_label(self, board: LiveScoreboardResponse, events: dict[int, str]) -> str:
+        """The event a board draws and the channel it sits in, the two things that tell
+        one registered board from another.
+        """
+        event = events.get(board["scheduled_event_id"], f"event {board['scheduled_event_id']}")
+        name = getattr(self.bot.get_channel(int(board["channel_id"])), "name", None)
+        where = f"#{name}" if name else f"channel {board['channel_id']}"
+        return f"{event} · {where}"
+
+    async def board_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Every registered board, whether or not this bot can reach its message."""
+        try:
+            boards = await self.bot.api.live_scoreboards()
+            events = {event["scheduled_event_id"]: event_label(event) for event in await self.bot.api.calendar()}
+        except FzdApiError as error:
+            logger.warning("[stop_board] autocomplete could not read the API: %s", error)
+            return []
+        needle = current.casefold()
+        choices = [
+            app_commands.Choice(name=label[:100], value=board["message_id"])
+            for board in boards
+            if needle in (label := self._board_label(board, events)).casefold()
+        ]
+        return choices[:MAX_CHOICES]
+
+    @app_commands.command(
+        name="stop_board", description="Stop a live scoreboard from updating, leaving its message where it is"
+    )
+    @app_commands.describe(board="Which board")
+    async def stop_board(self, interaction: discord.Interaction, board: str):
+        if not board.strip().isdigit():
+            await self._refuse(interaction, "Pick a board from the list.")
+            return
+        await interaction.response.defer(ephemeral=True)
+        message_id = int(board)
+        try:
+            await self._stop(message_id)
+        except FzdApiError as error:
+            logger.warning("[stop_board] refused for message=%s: %s", message_id, error)
+            await self._refuse(interaction, error.refusal())
+            return
+        await interaction.followup.send(
+            "Stopped that board. Its message stays where it is and no longer updates.", ephemeral=True
+        )
+        logger.info("[stop_board] %s stopped message=%s", interaction.user, message_id)
 
     @app_commands.command(name="fzd_show", description="Show most current FZD event scoreboard")
     async def show_scoreboard(self, interaction: discord.Interaction, event_type: str | None = None):
@@ -312,7 +417,8 @@ class Scoreboard(commands.Cog):
         self.show_scoreboard.autocomplete("event_type")(self.event_type_autocomplete)
         self.setup_scoreboard.autocomplete("event")(self.event_autocomplete)
         self.setup_scoreboard.autocomplete("group")(self.group_autocomplete)
-        self.refresh = tasks.loop(seconds=get_settings().scoreboard_refresh_seconds)(self.refresh_boards)
+        self.stop_board.autocomplete("board")(self.board_autocomplete)
+        self.refresh = tasks.loop(seconds=get_settings().scoreboard_refresh_seconds)(self._tick)
         self.refresh.before_loop(self.bot.wait_until_ready)
         self.refresh.start()
 

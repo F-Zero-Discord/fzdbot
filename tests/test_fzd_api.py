@@ -201,3 +201,18 @@ def test_problem_document_becomes_renderable_error():
         assert error.value.refusal() == "tag must be at most 10 characters"
 
     asyncio.run(run())
+
+
+def test_calendar_request_carries_its_window():
+    async def run():
+        client, session = client_with(Response(200, []), Response(200, []))
+
+        await client.calendar()
+        await client.calendar(days=30)
+
+        assert [call[:3] for call in session.calls] == [
+            ("GET", "https://api.example.test/v1/events?days=14", None),
+            ("GET", "https://api.example.test/v1/events?days=30", None),
+        ]
+
+    asyncio.run(run())
