@@ -6,6 +6,7 @@ from typing import Any
 import aiohttp
 
 from fzdbot.api_types import (
+    EliteRivalEventResponse,
     EliteRivalResponse,
     EventDetailResponse,
     EventResponse,
@@ -393,29 +394,33 @@ class FzdApi:
         )
 
     async def elite_rival(self, discord_user_id: int, now: datetime) -> EliteRivalResponse:
-        """This player's one Elite Rival pick, and the events they may pick one
-        in now, each with its registered Elite Rivals.
+        """Every rival event where this player holds an Elite Rival or may pick
+        one now, each with its pick and its registered Elite Rivals.
         """
         return await self._request("GET", f"/v1/players/{discord_user_id}/elite-rival?now={_instant(now)}")
 
     async def choose_elite_rival(
         self, discord_user_id: int, scheduled_event_id: int, rival_discord_user_id: int, now: datetime
-    ) -> EliteRivalResponse:
-        """Name the player's Elite Rival in one event, replacing the pick they
-        hold in any. The API holds the rules: 404 for an event with no Rival
+    ) -> EliteRivalEventResponse:
+        """Name the player's Elite Rival for one event, replacing their earlier
+        pick in it. The API holds the rules: 404 for an event with no Rival
         Challenge, one the caller is not registered for, or a rival not on its
-        list; 409 when the held pick or this event has started; 422 for
-        naming yourself.
+        list; 409 once the event has started; 422 for naming yourself.
+        Answers the refreshed event.
         """
         return await self._request(
             "PUT",
-            f"/v1/players/{discord_user_id}/elite-rival?now={_instant(now)}",
-            json={"scheduled_event_id": scheduled_event_id, "rival_discord_user_id": str(rival_discord_user_id)},
+            f"/v1/players/{discord_user_id}/elite-rival/{scheduled_event_id}?now={_instant(now)}",
+            json={"rival_discord_user_id": str(rival_discord_user_id)},
         )
 
-    async def withdraw_elite_rival(self, discord_user_id: int, now: datetime) -> EliteRivalResponse:
-        """Clear the player's Elite Rival. Idempotent; 409 once its event has started."""
-        return await self._request("DELETE", f"/v1/players/{discord_user_id}/elite-rival?now={_instant(now)}")
+    async def withdraw_elite_rival(
+        self, discord_user_id: int, scheduled_event_id: int, now: datetime
+    ) -> EliteRivalEventResponse:
+        """Clear the player's Elite Rival for one event. Idempotent; 409 once the event has started."""
+        return await self._request(
+            "DELETE", f"/v1/players/{discord_user_id}/elite-rival/{scheduled_event_id}?now={_instant(now)}"
+        )
 
     async def _request(self, method: str, path: str, json: dict[str, Any] | None = None) -> Any:
         if self._session is None or self._session.closed:
