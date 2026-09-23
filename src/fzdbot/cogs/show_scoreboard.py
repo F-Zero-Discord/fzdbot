@@ -74,7 +74,10 @@ def _boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse) -> dict
     `None` key is the one board of an event without divisions, and on a
     division event the board of the players it lists with no division.
     """
-    boards = render_boards(detail, scoreboard, podium=get_settings().scoreboard_display_podium)
+    settings = get_settings()
+    boards = render_boards(
+        detail, scoreboard, podium=settings.scoreboard_display_podium, debug=settings.debug_scoreboard
+    )
     return {board.group_id: board for board in boards}
 
 

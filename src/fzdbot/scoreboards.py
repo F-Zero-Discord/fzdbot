@@ -1,12 +1,14 @@
 """A scoreboard as lines of Discord markdown, from the two reads that describe
 it: the event detail (how the board is shaped) and the scoreboard (what is on
 it). Which board to draw is decided by `group_kind` and `scoring_method`,
-never by the event's name; every value shown, including `rank`, is read from
-the scoreboard and nothing is summed or ranked here.
+never by the event's name. `rank`, `total` and each result's `value` are read
+from the scoreboard and nothing is ranked here. A time board shows each
+player's gap to the leader, their `total` less the rank 1 row's, so the leader
+reads +0.00s where `total` would carry their own losses to other players' best
+slots.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import TypedDict
 
 from fzdbot.api_types import (
@@ -48,9 +50,7 @@ class ScheduledEvent(TypedDict):
 
 
 def event_label(event: ScheduledEvent) -> str:
-    """`2026-09-19 | Friday EU GP`: the UTC date of the start and the event's name."""
-    date = datetime.fromisoformat(event["starts_at"]).astimezone(UTC)
-    return f"{date:%Y-%m-%d} | {event['event']}"
+    return f"{event['event']}"
 
 
 def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVoteWinnerResponse | None:
@@ -81,16 +81,19 @@ def format_time(time_cs: int) -> str:
 
 def format_loss(loss_cs: int) -> str:
     seconds, centiseconds = divmod(loss_cs, 100)
-    return f"+{seconds}.{centiseconds:02d}"
+    return f"+{seconds}.{centiseconds:02d}s"
 
 
-def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *, podium: bool = False) -> list[Board]:
+def render_boards(
+    detail: EventDetailResponse, scoreboard: ScoreboardResponse, *, podium: bool = False, debug: bool = False
+) -> list[Board]:
     """One board per division on a division event, since four divisions in one
     embed exceed its field limits; one board otherwise, a team event included,
     where the teams are ranked above the individuals on the single board.
     Players a division event lists with no division get a board of their own,
     after the divisions, and only when there are any. `podium` swaps the top
-    three ranks for medal emotes and rules a line under them.
+    three ranks for medal emotes and rules a line under them. `debug` appends
+    each player's submission count and per-slot results to their line.
     """
     groups = {group["group_id"]: group for group in detail["groups"]}
     if scoreboard["group_kind"] == "division":
@@ -101,16 +104,17 @@ def render_boards(detail: EventDetailResponse, scoreboard: ScoreboardResponse, *
                 group_label(group),
                 [r for r in scoreboard["rows"] if r["group_id"] == group_id],
                 podium,
+                debug,
                 group_id=group_id,
             )
             for group_id, group in groups.items()
         ]
         unassigned = [row for row in scoreboard["rows"] if row["group_id"] not in groups]
         if unassigned:
-            boards.append(_board(detail, scoreboard, "No division", unassigned, podium))
+            boards.append(_board(detail, scoreboard, "No division", unassigned, podium, debug))
         return boards
 
-    return [_board(detail, scoreboard, "", scoreboard["rows"], podium)]
+    return [_board(detail, scoreboard, "", scoreboard["rows"], podium, debug)]
 
 
 def group_label(group: EventGroupResponse) -> str:
@@ -124,6 +128,7 @@ def _board(
     title: str,
     rows: list[ScoreboardRowResponse],
     podium: bool,
+    debug: bool,
     *,
     group_id: int | None = None,
 ) -> Board:
@@ -142,6 +147,7 @@ def _board(
             board.lines.append(f"**{_rank(team['rank'], podium)} {name} - {_total(team['total'], timed)}**")
         board.lines.append("\n INDIVIDUAL RESULTS:")
 
+    leader_total = next((row["total"] for row in rows if row["rank"] == 1), None)
     below_podium = False
     for row in rows:
         if podium and not below_podium and (row["rank"] is None or row["rank"] > 3):
@@ -150,8 +156,11 @@ def _board(
         prefix = _rank(row["rank"], podium)
         if scoreboard["group_kind"] == "team":
             prefix = _team_prefix(groups, row["group_id"])
-        line = f"{prefix} **{row['display_name']}** - **{_total(row['total'], timed)}**"
-        if slots:
+        if timed:
+            line = f"{prefix} **{row['display_name']}** - **{_gap(row['total'], leader_total)}**"
+        else:
+            line = f"{prefix} **{row['display_name']}** - **{_total(row['total'], timed)}**"
+        if debug and slots:
             tokens = [
                 _token(r, multipliers[slot_id], timed) for r in row["results"] if (slot_id := r["slot_id"]) is not None
             ]
@@ -164,8 +173,13 @@ def _notes(scoreboard: ScoreboardResponse, timed: bool) -> list[str]:
     notes = []
     if timed:
         cap = scoreboard["max_time_loss_cs"]
-        capped = f"; {DNF} and {NOT_ENTERED} count {format_loss(cap)}" if cap is not None else ""
-        notes.append(f"*Loss to the slot's leader as +s.cc{capped}*")
+        capped = (
+            f" Max time loss per track is +{cap / 100:g} sec." if cap is not None else " There is no maximum time loss."
+        )
+        notes.append(
+            f"*This event is scored by your submitted time.{capped}"
+            " Your score is how many seconds behind the leader you are.*"
+        )
     if scoreboard["machine_counts_once"]:
         notes.append("*Machine Mastery: each machine counts once, best score kept; the rest shown ~~struck~~*")
     dropped = scoreboard["num_mulligans"]
@@ -196,6 +210,12 @@ def _total(total: int | None, timed: bool) -> str:
     if total is None:
         return NOT_ENTERED
     return format_loss(total) if timed else str(total)
+
+
+def _gap(total: int | None, leader_total: int | None) -> str:
+    if total is None or leader_total is None:
+        return NOT_ENTERED
+    return format_loss(total - leader_total)
 
 
 def _token(result: SlotResultResponse, multiplier: int, timed: bool) -> str:

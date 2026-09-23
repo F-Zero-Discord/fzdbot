@@ -124,8 +124,8 @@ def scoreboard(
 def test_time_and_loss_formats():
     assert format_time(9044) == "1:30.44"
     assert format_time(5) == "0:00.05"
-    assert format_loss(52) == "+0.52"
-    assert format_loss(6000) == "+60.00"
+    assert format_loss(52) == "+0.52s"
+    assert format_loss(6000) == "+60.00s"
 
 
 def test_points_board_marks_multiplier_drops_dnf_and_not_entered():
@@ -146,7 +146,7 @@ def test_points_board_marks_multiplier_drops_dnf_and_not_entered():
             rank=1,
         )
     ]
-    boards = render_boards(d, scoreboard(d, rows))
+    boards = render_boards(d, scoreboard(d, rows), debug=True)
 
     assert boards == [
         Board(
@@ -160,7 +160,7 @@ def test_points_board_marks_multiplier_drops_dnf_and_not_entered():
 def test_machine_mastery_footnote_says_why_a_repeat_is_struck():
     d = detail(slots=[slot(1, 1, "Knight"), slot(2, 2, "Queen")], machine_counts_once=True)
     rows = [row("Pilot", [result(1, score=300), result(2, score=250, counted=False)], total=300, rank=1)]
-    boards = render_boards(d, scoreboard(d, rows))
+    boards = render_boards(d, scoreboard(d, rows), debug=True)
 
     assert boards[0].notes == [
         "*Machine Mastery: each machine counts once, best score kept; the rest shown ~~struck~~*",
@@ -194,20 +194,57 @@ def test_time_board_shows_loss_cap_and_leaves_an_unopened_slot_blank():
         row(
             "Chaser",
             [
-                result(1, time_cs=9096, value=52),
-                result(2, time_cs=None, value=2000),
+                result(1, time_cs=None, value=2000),
+                result(2, time_cs=9096, value=0),
                 result(3, submitted=False, open=False, value=0),
             ],
-            total=2052,
-            rank=2,
+            total=2000,
+            rank=1,
         ),
+    ]
+    boards = render_boards(d, scoreboard(d, rows), debug=True)
+
+    assert boards[0].notes == [
+        "*This event is scored by your submitted time. Max time loss per track is +20 sec."
+        " Your score is how many seconds behind the leader you are.*"
+    ]
+    assert [line.split(" [")[1] for line in boards[0].lines] == [
+        "1/3] 1:30.44 +0.00s · — +20.00s",
+        "2/3] DNF +20.00s · 1:30.96 +0.00s",
+    ]
+
+
+def test_time_board_shows_each_players_gap_to_the_leader():
+    d = detail(slots=[slot(1, 1, "MC"), slot(2, 2, "BB")], max_time_loss_cs=2000, method="time")
+    rows = [
+        row("Leader", [result(1, time_cs=10524, value=500), result(2, time_cs=9020, value=0)], total=500, rank=1),
+        row("Chaser", [result(1, time_cs=10024, value=0), result(2, time_cs=9820, value=800)], total=800, rank=2),
+        row("Dnf", [result(1, time_cs=11024, value=1000), result(2, time_cs=None, value=2000)], total=3000, rank=3),
     ]
     boards = render_boards(d, scoreboard(d, rows))
 
-    assert boards[0].notes == ["*Loss to the slot's leader as +s.cc; DNF and — count +20.00*"]
     assert boards[0].lines == [
-        "1\\. **Leader** - **+20.00** [1/3] 1:30.44 +0.00 · — +20.00",
-        "2\\. **Chaser** - **+20.52** [2/3] 1:30.96 +0.52 · DNF +20.00",
+        "1\\. **Leader** - **+0.00s**",
+        "2\\. **Chaser** - **+3.00s**",
+        "3\\. **Dnf** - **+25.00s**",
+    ]
+
+
+def test_time_board_without_a_cap_has_no_gap_for_a_dnf():
+    d = detail(slots=[slot(1, 1, "MC")], method="time")
+    rows = [
+        row("Leader", [result(1, time_cs=9020, value=0)], total=0, rank=1),
+        row("Dnf", [result(1, time_cs=None, value=None)], total=None, rank=None),
+    ]
+    boards = render_boards(d, scoreboard(d, rows))
+
+    assert boards[0].notes == [
+        "*This event is scored by your submitted time. There is no maximum time loss."
+        " Your score is how many seconds behind the leader you are.*"
+    ]
+    assert boards[0].lines == [
+        "1\\. **Leader** - **+0.00s**",
+        "-\\. **Dnf** - **—**",
     ]
 
 
@@ -222,7 +259,7 @@ def test_division_event_unfiltered_is_one_board_per_division_in_order():
         row("Bob", [result(1, score=20, value=20)], total=20, rank=1, group_id=26),
         row("Cid", [result(1, score=5, value=5)], total=5, rank=1, group_id=None),
     ]
-    boards = render_boards(d, scoreboard(d, rows))
+    boards = render_boards(d, scoreboard(d, rows), debug=True)
 
     assert [b.title for b in boards] == ["Standard", "Novice", "No division"]
     assert [b.lines for b in boards] == [
@@ -248,7 +285,7 @@ def test_team_event_ranks_teams_above_individuals():
         {"group_id": 12, "total": 95, "rank": 1},
         {"group_id": 13, "total": 90, "rank": 2},
     ]
-    boards = render_boards(d, scoreboard(d, rows, team_totals=totals))
+    boards = render_boards(d, scoreboard(d, rows, team_totals=totals), debug=True)
 
     assert boards[0].lines == [
         "**1\\. <:b:1> Blue - 95**",

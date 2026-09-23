@@ -35,9 +35,11 @@ class Settings(BaseSettings):
     # an event absent from it is never touched.
     ggp8_event_roles: dict[int, int] = {}
     event_role_sync_seconds: int = 300
-    scoreboard_display_podium: bool = False
+    scoreboard_display_podium: bool = True
     scoreboard_lines_per_block: int = 8
     scoreboard_refresh_seconds: int = 10
+    # Appends each player's submission count and per-slot results to their line.
+    debug_scoreboard: bool = False
 
     @field_validator(
         "error_alert_channel_id",

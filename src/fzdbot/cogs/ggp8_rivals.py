@@ -1,5 +1,7 @@
 """`/ggp8_rivals`, `/ggp8_rivals_delete` and `/ggp8_rivals_show`: name, clear,
-or look over your rivals for GGP8's events.
+or look over your rivals for GGP8's events. `/ggp8_elite_rival` and
+`/ggp8_elite_rival_delete`: name or clear the one Elite Rival a player holds
+across all of them.
 
 GGP8-shaped on purpose and deleted with GGP8. The events offered are the ones
 the API says are GGP8's and run a Rival Challenge; the players offered are that
@@ -18,12 +20,15 @@ from discord.ext import commands
 
 from fzdbot.api_types import (
     ChallengerResponse,
+    EliteRivalEventResponse,
+    EliteRivalResponse,
     Ggp8RegistrationResponse,
+    RivalCandidateResponse,
     RivalEventResponse,
     RivalPlayerResponse,
 )
 from fzdbot.formatters import format_discord_timestamp
-from fzdbot.fzd_api import FzdApiError
+from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.scoreboards import event_label
 from fzdbot.settings import get_settings
@@ -80,6 +85,100 @@ def _event_field(event: RivalEventResponse, challengers: list[ChallengerResponse
 
     picked_you = _names([challenger["player"] for challenger in challengers], "Nobody yet")
     return event_label(event), f"{when}\n\n🎯 **Your rival**\n{rival}\n\n⚔️ **Picked you**\n{picked_you}"
+
+
+def _candidate_option(candidate: RivalCandidateResponse) -> discord.SelectOption:
+    return discord.SelectOption(
+        label=_player_name(candidate["tag"], candidate["discord_user_name"], candidate["discord_user_id"]),
+        description=candidate["group"]["alt_name"] or candidate["group"]["name"],
+        value=candidate["discord_user_id"],
+    )
+
+
+class EliteEventSelect(discord.ui.Select):
+    def __init__(self, parent_view: "EliteRivalView", events: list[EliteRivalEventResponse]) -> None:
+        self.parent_view = parent_view
+        super().__init__(
+            placeholder="Pick the event",
+            options=[
+                discord.SelectOption(label=event_label(event), value=str(event["scheduled_event_id"]))
+                for event in events
+            ],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.parent_view.event_chosen(interaction, int(self.values[0]))
+
+
+class EliteCandidateSelect(discord.ui.Select):
+    def __init__(self, parent_view: "EliteRivalView", event: EliteRivalEventResponse) -> None:
+        self.parent_view = parent_view
+        super().__init__(
+            placeholder=f"Pick your Elite Rival for {event_label(event)}",
+            options=[_candidate_option(candidate) for candidate in event["candidates"]],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.parent_view.rival_chosen(interaction, int(self.values[0]))
+
+
+class EliteRivalView(discord.ui.View):
+    """Two steps on one ephemeral message: the event, then that event's Elite
+    Rivals, then the write. Choosing the event reads the API again, so the
+    candidates shown are the ones registered at that moment.
+    """
+
+    def __init__(self, api: FzdApi, elite: EliteRivalResponse) -> None:
+        super().__init__(timeout=300)
+        self.api = api
+        self.event_select = EliteEventSelect(self, elite["events"])
+        self.candidate_select: EliteCandidateSelect | None = None
+        self.scheduled_event_id: int | None = None
+        self.add_item(self.event_select)
+
+    async def event_chosen(self, interaction: discord.Interaction, scheduled_event_id: int) -> None:
+        await interaction.response.defer()
+        try:
+            elite = await self.api.elite_rival(interaction.user.id, datetime.now(UTC))
+        except FzdApiError as error:
+            await interaction.edit_original_response(content=f"❌ {error.refusal()}", view=None)
+            return
+        event = next((event for event in elite["events"] if event["scheduled_event_id"] == scheduled_event_id), None)
+        if event is None:
+            await interaction.edit_original_response(
+                content="That event has no Elite Rival you can pick any more. Run `/ggp8_elite_rival` again.",
+                view=None,
+            )
+            return
+
+        self.scheduled_event_id = scheduled_event_id
+        for option in self.event_select.options:
+            option.default = option.value == str(scheduled_event_id)
+        if self.candidate_select is not None:
+            self.remove_item(self.candidate_select)
+        self.candidate_select = EliteCandidateSelect(self, event)
+        self.add_item(self.candidate_select)
+        await interaction.edit_original_response(view=self)
+
+    async def rival_chosen(self, interaction: discord.Interaction, rival_discord_user_id: int) -> None:
+        assert self.scheduled_event_id is not None, "the candidates are shown only once an event is chosen"
+        await interaction.response.defer()
+        try:
+            elite = await self.api.choose_elite_rival(
+                interaction.user.id, self.scheduled_event_id, rival_discord_user_id, datetime.now(UTC)
+            )
+        except FzdApiError as error:
+            await interaction.edit_original_response(content=f"❌ {error.refusal()}", view=None)
+            return
+
+        pick = elite["pick"]
+        assert pick is not None, "the PUT answers with the pick just made"
+        await interaction.edit_original_response(
+            content=f"⭐ Your Elite Rival is now **{_rival_name(pick['rival'])}** for **{event_label(pick)}**. "
+            "Run `/ggp8_elite_rival` again to change it, or `/ggp8_elite_rival_delete` to remove it.",
+            view=None,
+        )
+        self.stop()
 
 
 class Ggp8Rivals(commands.Cog):
@@ -223,6 +322,45 @@ class Ggp8Rivals(commands.Cog):
                 else "No event is running a Rival Challenge right now."
             )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="ggp8_elite_rival", description="Pick your one Elite Rival for GGP8")
+    async def elite_rival(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            elite = await self.bot.api.elite_rival(interaction.user.id, datetime.now(UTC))
+        except FzdApiError as error:
+            await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
+            return
+
+        pick = elite["pick"]
+        held = f"Your Elite Rival is **{_rival_name(pick['rival'])}** for **{event_label(pick)}**." if pick else ""
+        if pick is not None and pick["locked"]:
+            await interaction.followup.send(
+                f"🔒 {held} {event_label(pick)} has started, so it is locked.", ephemeral=True
+            )
+            return
+        if not elite["events"]:
+            await interaction.followup.send(
+                f"{held} No GGP8 event you are registered for has an Elite Rival you can pick.".strip(), ephemeral=True
+            )
+            return
+
+        lines = ["⭐ **Elite Rival**: one pick for all of GGP8, in one of your events."]
+        if held:
+            lines.append(f"{held} A new pick replaces it.")
+        lines.append("Pick the event, then your Elite Rival.")
+        await interaction.followup.send("\n".join(lines), view=EliteRivalView(self.bot.api, elite), ephemeral=True)
+
+    @app_commands.command(name="ggp8_elite_rival_delete", description="Remove your Elite Rival for GGP8")
+    async def delete_elite_rival(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.bot.api.withdraw_elite_rival(interaction.user.id, datetime.now(UTC))
+        except FzdApiError as error:
+            await interaction.followup.send(f"❌ {error.refusal()}", ephemeral=True)
+            return
+
+        await interaction.followup.send("You no longer have an Elite Rival.", ephemeral=True)
 
     async def cog_load(self) -> None:
         self.set_rival.autocomplete("event")(self.event_autocomplete)

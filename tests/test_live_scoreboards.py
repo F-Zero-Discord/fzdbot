@@ -144,7 +144,10 @@ def http_error(cls, status):
 @pytest.fixture
 def alerts(monkeypatch):
     settings = SimpleNamespace(
-        scoreboard_display_podium=False, scoreboard_lines_per_block=8, scoreboard_refresh_seconds=10
+        scoreboard_display_podium=False,
+        scoreboard_lines_per_block=8,
+        scoreboard_refresh_seconds=10,
+        debug_scoreboard=False,
     )
     monkeypatch.setattr(show_scoreboard, "get_settings", lambda: settings)
     monkeypatch.setattr("fzdbot.formatters.get_settings", lambda: settings)
@@ -251,6 +254,7 @@ def test_a_board_the_event_draws_no_longer_is_stopped(alerts):
 
     assert api.stopped == [11, 11]
     assert bot.messages == {} and alerts == []
+
 
 def test_a_board_waiting_for_its_event_is_read_once_and_left_alone(alerts):
     api = Api([board(11)], detail() | {"starts_at": FUTURE}, scoreboard("Ann"))
