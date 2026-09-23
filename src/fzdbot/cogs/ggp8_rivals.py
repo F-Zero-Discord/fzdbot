@@ -66,9 +66,23 @@ def _names(players: list[RivalPlayerResponse], empty: str) -> str:
     return "\n".join(f"> **{_rival_name(player)}**" for player in players)
 
 
-def _event_field(event: RivalEventResponse, challengers: list[ChallengerResponse]) -> tuple[str, str]:
-    """One embed field: the event as its name, and under it the caller's pick
-    and everyone who picked them, each as a quoted block.
+def _elite_block(elite: EliteRivalEventResponse | None) -> str:
+    """The caller's Elite Rival for one event, or nothing where the event has no
+    Elite Rival they hold or could pick."""
+    if elite is None:
+        return ""
+    if elite["rival"]:
+        rival = f"> **{_rival_name(elite['rival']['player'])}**"
+    else:
+        rival = "> *None yet — `/ggp8_elite_rival` to pick one*"
+    return f"\n\n⭐ **Your Elite Rival**\n{rival}"
+
+
+def _event_field(
+    event: RivalEventResponse, elite: EliteRivalEventResponse | None, challengers: list[ChallengerResponse]
+) -> tuple[str, str]:
+    """One embed field: the event as its name, and under it the caller's pick,
+    their Elite Rival and everyone who picked them, each as a quoted block.
     """
     starts_at = format_discord_timestamp(datetime.fromisoformat(event["starts_at"]))
     when = f"🔒 Started {starts_at}" if event["locked"] else f"Starts {starts_at}"
@@ -83,7 +97,10 @@ def _event_field(event: RivalEventResponse, challengers: list[ChallengerResponse
         rival = "> *No rival yet — `/ggp8_rivals` to name one*"
 
     picked_you = _names([challenger["player"] for challenger in challengers], "Nobody yet")
-    return event_label(event), f"{when}\n\n🎯 **Your rival**\n{rival}\n\n⚔️ **Picked you**\n{picked_you}"
+    return (
+        event_label(event),
+        f"{when}\n\n🎯 **Your rival**\n{rival}{_elite_block(elite)}\n\n⚔️ **Picked you**\n{picked_you}",
+    )
 
 
 def _candidate_option(candidate: RivalCandidateResponse) -> discord.SelectOption:
@@ -300,7 +317,11 @@ class Ggp8Rivals(commands.Cog):
     async def show_rivals(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
-            overview = await self.bot.api.rivals(interaction.user.id, datetime.now(UTC))
+            now = datetime.now(UTC)
+            overview, elite = await asyncio.gather(
+                self.bot.api.rivals(interaction.user.id, now),
+                self.bot.api.elite_rival(interaction.user.id, now),
+            )
         except FzdApiError as error:
             await interaction.followup.send(f"❌ {error}", ephemeral=True)
             return
@@ -318,7 +339,10 @@ class Ggp8Rivals(commands.Cog):
             ]
             if not event["registered"] and not challengers:
                 continue
-            name, value = _event_field(event, challengers)
+            elite_event = next(
+                (row for row in elite["events"] if row["scheduled_event_id"] == event["scheduled_event_id"]), None
+            )
+            name, value = _event_field(event, elite_event, challengers)
             embed.add_field(name=name, value=value, inline=False)
 
         if not embed.fields:
