@@ -102,208 +102,26 @@ a bot.
 
 ## Where the data comes from
 
-**Every command but two reads and writes through the FZD API, not the database.**
-`fzd_api.py` is the whole client: one `aiohttp` session, an `X-API-Key` header,
-and `FzdApiError` carrying the HTTP status. `bot.api` holds it, so a cog reaches
-it as `self.bot.api` and a registration session as `interaction.client.api`.
+**Every command but two reads and writes through the FZD API, not the
+database.** `fzd_api.py` is the whole client: one `aiohttp` session, an
+`X-API-Key` header, and `FzdApiError` carrying the HTTP status. `bot.api` holds
+it, so a cog reaches it as `self.bot.api` and a registration session as
+`interaction.client.api`. What a given command reads and writes is its cog and
+the client's signatures; only what no single file can state is below.
 
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required at startup**. There is no
 fallback to the database: a missing key stops the bot rather than letting every
 command fail one at a time. One key per environment, minted by the API's
 `api-key-new`.
 
-**`/ggp8_rivals`, `/ggp8_rivals_delete` and `/ggp8_rivals_show` hold nothing.** `cogs/ggp8_rivals.py`
-offers the events `GET /v1/ggp8/events` lists, narrowed to the ones the caller's
-`GET /v1/players/{id}/rivals` overview says run a Rival Challenge, so no event id
-or name is written here to exclude Yahtzee. The player picker is
-`GET /v1/ggp8/registrations` filtered to the chosen event: every division, with
-a player outside the caller's own marked. The pick is one `PUT`, the removal one
-`DELETE`, and the rules — both registered, not yourself, not after the start —
-are the API's, whose refusal is what the user reads. The API also tells the
-rival, later, through a webhook; the bot sends no message of its own.
-`/ggp8_rivals_show` is the same overview read once more, rendered as one
-ephemeral embed field per event: the caller's pick and everyone who picked
-them, for every event they are registered for or have been picked in.
-
-**`/submit_score`, `/submit_time` and `/delete_submission` set a result on a
-slot.** `cogs/submissions.py` offers every slot of every event
-`GET /v1/events/active` lists, read from `GET /v1/events/{id}/schedule`, the
-slot raced most recently first; the choice carries the event id and the slot id
-and nothing else. The write is one `PUT` of a score, a time in centiseconds, or
-`dnf`, and the removal one `DELETE`. The bot parses the time (`m:ss.cc`, any
-non-digit between the parts) and the score, and nothing more: which events are
-open, whether the slot takes a score or a time, the bounds, and whether a
-machine must be named are the API's rules, and its refusal is what the user
-reads. A second submission to a slot replaces the first; there is no edit.
-
-**`/ggp_submit_score` and `/ggp_submit_time` set a result on the slot the clock
-names.** `cogs/ggp_submissions.py` takes a value and a machine, and nothing
-else: the event is the one `GET /v1/events/active` answers, and the slot the
-one of its schedule whose `starts_at` has passed most recently, both read at
-the write. The names say GGP, but no `ggp_*` command asks whether the event is
-GGP8's: a weekly is taken the same way, so the commands can be tried on one.
-No such event, two such events, no schedule, no start times, or no slot
-started yet is one ephemeral sentence, and the last names the first slot's
-start. Two events at once is not decided here: the sentence points at
-`/submit_score`. That rule makes the schedule's start times a contract,
-written once as `active_slot`'s docstring. The machine
-is required regardless of the event's `machine_input_required`; the value is
-parsed by `cogs/submissions.py`'s parsers. Before the write,
-`GET /v1/players/{id}/results?scheduled_event_id=N` says what the caller holds
-on the slot, and the public confirmation names what the `PUT` replaced.
-
-**`/ggp_submit` is the same write as a form.** With no options it makes the
-same reads — the active events, the active event's schedule, `GET /v1/machines`
-and the caller's results — and answers with one `discord.ui.Modal` in place of
-a deferral, so they run inside Discord's three-second budget; a read that
-fails is the ephemeral sentence instead. The modal's title is the event and
-the slot cut to Discord's 45 characters; a `TextDisplay` names them in full
-and, where the caller holds a row on the slot, says what it is and that
-submitting replaces it; one `TextInput` under a `Label` asks for a score or
-a time as the event's `scoring_method` says, pre-filled with the held value;
-and a `RadioGroup` holds one button per machine, the held one selected.
-Discord refuses the form without a machine, so nothing here checks for one.
-The modal holds the event and slot it was built for and writes to those; a
-value that does not parse is one ephemeral sentence and the player runs the
-command again, since a modal submission cannot open a second modal. `Label`,
-`TextDisplay` and `RadioGroup` are what pin `discord.py>=2.7`.
-
-**`/ggp_show_submissions` lists the caller's own results on an event, gaps
-included.** Its one option, `event`, autocompletes from GGP8's events and
-whatever is running now — `GET /v1/ggp8/events` and `GET /v1/events/active`,
-merged as `fzd_api.ggp8_and_active_events` — labelled as `event_label` labels
-them and carries the event id;
-left out, the event is the one that started most recently, or the first to
-come when none has. Two reads for that event, the schedule and
-`GET /v1/players/{id}/results?scheduled_event_id=N`, are joined on `slot_id`
-and answered as one ephemeral embed: the event as its title, one line per
-slot of the schedule in its order, the slot as `slot_name` names it and then
-the value as a board spells it (`850`, `1:30.44`, `DNF`) with the machine, or
-`not submitted`; the footer counts `2 of 4 slots submitted`. A slot not yet
-started is listed too, so the list is the whole schedule. No schedule is the
-same sentence `/ggp_submit_score` gives. Nothing here reads another player's
-rows: the API answers the caller's id only.
-
-**`/set_vote` records which track a lobby voted in on a race slot.**
-`cogs/votes.py` offers the race slots of the running events, then the chosen
-slot's own `tracks` — or `GET /v1/tracks` where the slot's lineup names none,
-since such a slot takes any track — and the event's divisions where it has
-them. A lobby is a division, or the whole event where it has none, so two
-divisions hold two winners on one slot. The write is one `PUT` carrying the
-interaction's user as who recorded it, and a second one for the same lobby
-replaces the first. Who may run it is set on the command in Discord's
-integration settings; nothing here checks a role, so until that is set anybody
-may run it. The API answers an event with a single division as having none,
-so there the option offers nothing and the vote is the whole event's. A track
-is labelled
-`Mirror Big Blue`, type in words, because the name alone is shared by a standard, a mirror and
-a classic track. Once recorded, the submission picker says
-`Race #3 99 Mirror Sand Ocean` and the vote confirmation `#3 99 (Mirror Sand Ocean)`, each for the
-lobby in question: the picker reads the player's group from
-`GET /v1/players/{id}/registrations`, and only when some slot holds a
-division's vote. A board names no slot, so it shows no vote.
-
-**`/setup_scoreboard` and `/fzd_show` post a board from two reads.**
-`GET /v1/events/{id}` says what the board is — `group_kind`, the groups, the
-slots with their multipliers, the mulligans and the time cap — and
-`GET /v1/events/{id}/scoreboard` says what is on it, the same for any caller,
-with `rank`, `total`, `value`, `counted` and `open` already decided.
-The scoreboard is read once and whole: a division event answers every division
-and a team event every team, so nothing here asks the API to narrow to one
-group. `scoreboards.render_boards` turns the pair into boards and decides
-nothing but layout: one per division on a division event, each carrying the
-`group_id` it is of, a ranked team block above the individuals on a team
-event's single board, `~~struck~~` on a result the API did not count (a
-mulligan, or a repeated machine under Machine Mastery), `×N` on a result with a
-multiplier, times as `m:ss.cc` with the loss to the slot's leader as `+s.cc`,
-`DNF` and `—` (not entered) told apart, and an unopened time slot left blank.
-The slots are not listed above the standings; a player's line carries one token
-per slot in schedule order. Nothing here sums, ranks or names an event. Both
-commands build their embeds from those boards, and mark an event yet to start
-`**Not started yet**` and one past its `ends_at` `**Final results**`. `/fzd_show` is the weeklies' command: it offers
-`GET /v1/event-types?recurring=true`, read per interaction, takes the latest
-event of the chosen type and posts every board of it at once, one embed each.
-
-**`/setup_scoreboard` posts a board that keeps itself current.** It offers the
-calendar — `GET /v1/events?days=14`, everything not yet over that starts within
-a fortnight — and a division of the chosen event where it has divisions. **A live board is one board**, so a division event takes the
-division the board is for and the command refuses without one; an event with no
-divisions takes none, and a team event's one board holds every team. Run in the
-channel the board should live in, it sends that one message with `channel.send`
-and registers it with `PUT /v1/scoreboards/{message_id}` (`channel_id`,
-`scheduled_event_id`, the `division_id`). Setting up four divisions is four
-runs. Which
-messages are live is the API's to hold: one `discord.ext.tasks.loop` in
-`cogs/show_scoreboard.py`, every `SCOREBOARD_REFRESH_SECONDS` (default 10)
-while an event is under way and otherwise sleeping until the next one starts,
-at most an hour, restarted by `/setup_scoreboard` so a new board does not wait,
-reads `GET /v1/scoreboards`, renders each row from the same two reads — one
-pair per event however many of its boards are live, and the detail alone for an
-event yet to start, which has nothing on its board — and edits the message
-through `get_partial_messageable(...).get_partial_message(...)` where the
-render changed. Reading the registry each tick is the whole restart
-path. Past the detail's `ends_at` a board is drawn once more with
-`**Final results**` and its row `DELETE`d; a `NotFound` on edit, a 404 on the
-event, or a division the event draws no board for, deletes the row too.
-Anything else logs, alerts once per board through `error_alerts`, and leaves
-the row for the next tick, except a `Forbidden`: a message this bot may not
-edit is another instance's board or one in a channel it cannot see, so it is
-skipped until a restart rather than alerted on every tick, and the row is left
-for whoever owns it. A board is stopped early by deleting its message, or with
-`/stop_board`, which takes the row out of the registry and leaves the message —
-the way to clear a board whose message this bot cannot delete.
-Nothing gates who may run it; that is set on the command in Discord's
-integration settings, as for `/set_vote`.
-
-**An event's Discord role is held by whoever is registered for it, and by
-nobody else.** `cogs/event_roles.py` ticks every `EVENT_ROLE_SYNC_SECONDS`:
-`GET /v1/ggp8/registrations` says who is registered, the guild's own member
-list says who holds the role, and the difference is added and removed one
-member at a time, each change logged with the snowflake, the role and the
-direction. Nothing is kept between ticks, so a withdrawal, a restart, a missed
-tick and a role handed out by hand are all corrected by the next one, and the
-first tick after a fresh start is the one-shot that grants the lot.
-`event_roles.py` beside it is the rule with no Discord in it: registered, not
-waitlisted, and named by a snowflake. **Waiting is not being in**, and
-`waitlisted` is the API's own field for it — a player in the queue holds no
-role until a place opens.
-
-`GGP8_EVENT_ROLES` maps a `scheduled_event_id` to a role id; an event absent
-from it is not touched and an empty map leaves the loop stopped, so a
-deployment that should grant nothing configures nothing. Two things have to be
-granted outside this repo, and the first is why the map is not just a setting:
-the **members intent**, privileged and enabled in the application's portal.
-`main.py` asks for it only where the map is not empty, because asking for an
-intent the portal has not granted stops the bot at startup — so configure the
-map and the portal together, or the deployment comes up dead. The second is
-**fzdbot's own role above the roles it hands out**, without which every add is
-refused. A member holding a role above the bot's is refused
-individually — staff who register are exactly that member — and the pass
-carries on. The one guard in the tick is that an event answering no
-registrations takes nothing back: an id configured wrongly and an empty event
-read the same, and a stale role is the cheaper of the two mistakes.
-
-**A player is named by their Discord id.** Every API path takes the snowflake,
-and `users.id` appears nowhere in this repo — nothing here resolves an account,
-and nothing here holds a database user id. Where a row may have to be created,
-the request also carries `discord_user_name` and a `tag`
-(`utils/user_utils.default_display_name`, `display_name` truncated to 10).
-
-**`fzd_db.py` remains, and only for `/fzd_start_event` and
-`/fzd_events_schedule`**, both in `cogs/events_users_handling.py`. It holds
-the pool, `execute_query`, and their three queries
-(`check_for_active_event`, `create_event`, `get_event_schedule`); the event
-types `/fzd_start_event` offers come from `GET /v1/event-types`. No SQL in this
-repo names `users`, `event_result_points`, `user_divisions`, `user_teams`,
-`event_registration_log`, `user_stats`, `divisions` or `teams`.
-
-**The API answers a composite read once.** `/ggp_register` asks
-`GET /v1/players/{id}/registrations` and gets the open events, every group's
-capacity and headcount, and the caller's own registration in one payload;
-`Event.from_api` and `UserRegistrations.from_api` build the screen objects from
-it. Nothing in this repo counts a registration or checks a capacity: the API
-counts inside the write and answers 409, which is the only answer that cannot
-already be stale by the time it is read.
+**The API owns every rule, and this repo keeps no copy of one.** Which events
+are open, whether a slot takes a score or a time, the bounds, whether a machine
+must be named, who may be named a rival, whether a registration still fits —
+each is decided inside the write, and the refusal is the sentence the user
+reads. Nothing here counts a registration, checks a capacity or ranks a result:
+a count read before a write is already stale by the time it is read, and the
+409 is not. A check added here is a second copy of a rule, and the copy is the
+one that goes out of date.
 
 **A cache is something to report, not to build on.** Commands read the API per
 interaction and the bot holds no state between them. If you find a cache in this
@@ -317,12 +135,27 @@ once, not data; and the live-board loop's `_rendered` and `_failing` in
 failed, so an unchanged board costs no edit and a stuck one alerts once. Both
 are rebuilt from the API on the next tick and nothing reads them but the loop.
 
-**Instants from the API are stored naive UTC.** `datetime.now()` and
-`datetime.timestamp()` both read a naive datetime as local time, and
-`utils/status_policies.py` compares against the first while `discord_timestamp`
-calls the second, so `utils/event_class.instant_to_naive_utc` drops the offset
-rather than carrying it. Carrying it would make `reg_open > datetime.now()`
-raise instead of answer.
+**A player is named by their Discord id.** Every API path takes the snowflake,
+and `users.id` appears nowhere in this repo — nothing here resolves an account,
+and nothing here holds a database user id. Where a row may have to be created,
+the request also carries `discord_user_name` and a `tag`
+(`utils/user_utils.default_display_name`, `display_name` truncated to 10).
+
+**`fzd_db.py` remains, and only for `/fzd_start_event` and
+`/fzd_events_schedule`**, both in `cogs/events_users_handling.py`. It holds the
+pool, `execute_query`, and their three queries. No SQL in this repo names
+`users`, `event_result_points`, `user_divisions`, `user_teams`,
+`event_registration_log`, `user_stats`, `divisions` or `teams`.
+
+**The event role sync needs two grants that cannot be made in this repo.** The
+**members intent**, privileged and enabled in the application's developer
+portal: `main.py` asks for it only where `GGP8_EVENT_ROLES` is not empty,
+because asking for an intent the portal has not granted stops the bot at
+startup, so the map and the portal are configured together or the deployment
+comes up dead. And **fzdbot's own role above the roles it hands out**, without
+which every add is refused — a member holding a role above the bot's is refused
+individually, staff who register are exactly that member, and the pass carries
+on.
 
 ## Running locally, against stage or a local API
 
@@ -338,6 +171,16 @@ deployment's `.env`: any application you own, invited to a test guild with the
 `applications.commands` scope and the message-content and members intents on.
 Starting fzdbot syncs its command tree to `SERVER_ID`, replacing whatever that
 application had registered there.
+
+**The live-board registry belongs to the API, not to a bot.**
+`GET /v1/scoreboards` answers every board registered against that environment,
+so a second bot pointed at stage reads the first one's rows and gets a 403 on
+each: a message is editable only by the application that sent it. That is one
+warning per board per tick and one error alert, and nothing else — the row
+stays, and the bot that posted the message goes on drawing it.
+`DELETE /v1/scoreboards/{message_id}` clears a row whose message is nobody's
+board any more. Two bots each holding a live board on one environment is not
+arrangeable; take turns.
 
 **`fzdbot --env NAME` reads `.env.NAME` in place of `.env`**, not on top of it:
 a setting the named file leaves out fails startup rather than being taken from
@@ -507,10 +350,3 @@ thing deliberately does not do is a present fact about it. And **a comment may
 say where to change something**: "this is the only place that names a group",
 "delete this constant to hand the decision back to the caller". That is a
 pointer, not a plan.
-
-## Commits
-
-**No `Co-Authored-By:` trailer.** A commit has one author. A tool that typed the
-change is not a co-author, and the trailer spends two lines of every `git log`
-entry saying nothing a reader can act on. This overrides any default instruction
-to add one.
