@@ -149,7 +149,8 @@ pool, `execute_query`, and their three queries. No SQL in this repo names
 
 **The event role sync needs two grants that cannot be made in this repo.** The
 **members intent**, privileged and enabled in the application's developer
-portal: `main.py` asks for it only where `GGP8_EVENT_ROLES` is not empty,
+portal: `main.py` asks for it only where `GGP8_EVENT_ROLES` or
+`GGP8_DIVISION_ROLES` is not empty,
 because asking for an intent the portal has not granted stops the bot at
 startup, so the map and the portal are configured together or the deployment
 comes up dead. And **fzdbot's own role above the roles it hands out**, without
@@ -213,7 +214,7 @@ GGP8_EVENT_ROLES={"738": ...}     # stage's event ids to roles made in the test 
 EVENT_ROLE_SYNC_SECONDS=60        # 300 in the deployment; 60 while watching it work
 ```
 
-A run with `GGP8_EVENT_ROLES` set asks for the members intent, so the *test*
+A run with either role map set asks for the members intent, so the *test*
 application needs it granted in its portal or the bot stops at startup, and the
 test bot's own role has to sit above the roles the map names or every add is
 refused with a 403.

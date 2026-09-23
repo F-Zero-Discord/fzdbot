@@ -1,5 +1,5 @@
-"""Who an event's role goes to, and the tick that hands it out, against a fake
-guild and a fake API."""
+"""Who an event's or a division's role goes to, and the tick that hands it out,
+against a fake guild and a fake API."""
 
 import asyncio
 from types import SimpleNamespace
@@ -11,15 +11,19 @@ import pytest
 from fzdbot.api_types import Ggp8RegistrationResponse
 from fzdbot.cogs import event_roles as cog_module
 from fzdbot.cogs.event_roles import EventRoles
-from fzdbot.event_roles import holders, unnamed
+from fzdbot.event_roles import division_holders, holders, unnamed
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 
 ASHES, REBIRTH = 738, 739
 ROLE = 10
+STANDARD, EXPERT = 27, 28
+STANDARD_ROLE = 11
 
 
-def registration(snowflake, *, event_id=ASHES, waitlisted=False, tag="player") -> Ggp8RegistrationResponse:
+def registration(
+    snowflake, *, event_id=ASHES, waitlisted=False, tag="player", division_id=None
+) -> Ggp8RegistrationResponse:
     return Ggp8RegistrationResponse(
         scheduled_event_id=event_id,
         event="Ashes",
@@ -27,6 +31,7 @@ def registration(snowflake, *, event_id=ASHES, waitlisted=False, tag="player") -
         tag=tag,
         discord_user_name=tag,
         discord_user_id=None if snowflake is None else str(snowflake),
+        division_id=division_id,
         division="Waitlist" if waitlisted else "Ashes",
         division_alt_name=None,
         team=None,
@@ -62,6 +67,18 @@ def test_the_waitlisted_are_not_reported_as_unnamed():
     assert unnamed([registration(None, waitlisted=True)], ASHES) == []
 
 
+def test_a_division_role_goes_to_that_divisions_members():
+    """Read off `division_id`, which follows a player staff move; a division's
+    name is theirs to change and would move the role with it."""
+    registrations = [registration(1, division_id=STANDARD), registration(2, division_id=EXPERT)]
+
+    assert division_holders(registrations, STANDARD) == {1}
+
+
+def test_a_waitlisted_member_of_a_division_is_not_a_holder():
+    assert division_holders([registration(1, division_id=STANDARD, waitlisted=True)], STANDARD) == set()
+
+
 # --- The tick -----------------------------------------------------------------
 
 
@@ -70,9 +87,9 @@ def http_error(cls, status):
 
 
 class Role:
-    def __init__(self, members):
-        self.id = ROLE
-        self.name = "GGP Ashes"
+    def __init__(self, members, *, role_id=ROLE, name="GGP Ashes"):
+        self.id = role_id
+        self.name = name
         self.members = members
 
 
@@ -93,12 +110,12 @@ class Member:
 
 
 class Guild:
-    def __init__(self, role, members):
-        self.role = role
+    def __init__(self, role, members, *, others=()):
+        self.roles = {r.id: r for r in (role, *others)}
         self.members = {member.id: member for member in members}
 
     def get_role(self, role_id):
-        return self.role if role_id == ROLE else None
+        return self.roles.get(role_id)
 
     def get_member(self, snowflake):
         return self.members.get(snowflake)
@@ -128,7 +145,12 @@ def alerts(monkeypatch):
     monkeypatch.setattr(
         cog_module,
         "get_settings",
-        lambda: SimpleNamespace(server_id=1, ggp8_event_roles={ASHES: ROLE}, event_role_sync_seconds=300),
+        lambda: SimpleNamespace(
+            server_id=1,
+            ggp8_event_roles={ASHES: ROLE},
+            ggp8_division_roles={STANDARD: STANDARD_ROLE},
+            event_role_sync_seconds=300,
+        ),
     )
     sent = []
 
@@ -156,6 +178,23 @@ def test_the_role_follows_the_registrations(alerts):
     tick(bot)
 
     assert [member.id for member in role.members] == [1]
+
+
+def test_a_division_role_is_granted_beside_the_events_and_follows_a_move(alerts):
+    """Moved out of Standard, the second player loses its role and keeps the
+    event's; the first is granted both."""
+    staying, moved = Member(1), Member(2)
+    event_role = Role([])
+    standard = Role([moved], role_id=STANDARD_ROLE, name="GGP Classic Standard")
+    bot = Bot(
+        Api([registration(1, division_id=STANDARD), registration(2, division_id=EXPERT)]),
+        Guild(event_role, [staying, moved], others=[standard]),
+    )
+
+    tick(bot)
+
+    assert sorted(member.id for member in event_role.members) == [1, 2]
+    assert [member.id for member in standard.members] == [1]
 
 
 def test_a_holder_who_is_still_registered_is_left_alone(alerts):

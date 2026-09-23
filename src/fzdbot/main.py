@@ -127,7 +127,7 @@ def main() -> None:
     # list. That intent is privileged: asking for one the application's portal
     # has not granted stops the bot at startup, so it is asked for only where a
     # role is configured to sync.
-    intents.members = bool(settings.ggp8_event_roles)
+    intents.members = bool(settings.ggp8_event_roles or settings.ggp8_division_roles)
 
     client = FZDBot(command_prefix="!", intents=intents)
     client.run(token=settings.discord_token)
