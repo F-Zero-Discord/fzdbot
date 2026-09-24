@@ -63,13 +63,13 @@ def vote_winner(slot: SlotResponse, division_id: int | None = None) -> LobbyVote
 def slot_name(slot: SlotResponse, division_id: int | None = None) -> str:
     """`#1 Knight`, or for a race slot with that lobby's vote in, `#3 99 (mirror Sand Ocean)`.
 
-    `track_name` is printed as the API answers it: it is the whole of the
+    The track's `name` is printed as the API answers it: it is the whole of the
     track's name, `mirror Sand Ocean` for the mirror row.
     """
     name = f"#{slot['position']} {slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id)
     if winner:
-        name += f" ({winner['track_name']})"
+        name += f" ({winner['track']['name']})"
     return name
 
 

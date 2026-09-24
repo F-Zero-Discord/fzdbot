@@ -1,7 +1,9 @@
 from fzdbot.api_types import (
     EventDetailResponse,
+    GroupKind,
     ScoreboardResponse,
     ScoreboardRowResponse,
+    ScoringMethod,
     SlotResponse,
     SlotResultResponse,
     TeamTotalResponse,
@@ -72,13 +74,13 @@ def row(
 
 def detail(
     *,
-    group_kind: str | None = None,
+    group_kind: GroupKind | None = None,
     groups=(),
     slots: tuple[SlotResponse, ...] | list[SlotResponse] = (),
     num_mulligans: int = 0,
     max_time_loss_cs: int | None = None,
     machine_counts_once: bool = False,
-    method: str = "points",
+    method: ScoringMethod = "points",
 ) -> EventDetailResponse:
     return {
         "scheduled_event_id": 1,

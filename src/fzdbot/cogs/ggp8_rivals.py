@@ -252,12 +252,7 @@ class Ggp8Rivals(commands.Cog):
             logger.warning("[ggp8_rivals] player autocomplete could not read the API: %s", error)
             return []
 
-        # A registrant with no stored Discord id cannot be named in a pick.
-        players = {
-            row["discord_user_id"]: row
-            for row in registrations
-            if row["scheduled_event_id"] == int(event) and row["discord_user_id"] is not None
-        }
+        players = {row["discord_user_id"]: row for row in registrations if row["scheduled_event_id"] == int(event)}
         own = players.get(str(interaction.user.id))
         own_group = _group(own) if own is not None else None
 

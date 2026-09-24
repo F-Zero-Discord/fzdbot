@@ -68,7 +68,7 @@ def choice_name(slot: SlotResponse, division_id: int | None) -> str:
     name = f"{slot['kind'].capitalize()} #{slot['position']} {slot['lineup_name'] or slot['lineup_short_name']}"
     winner = vote_winner(slot, division_id) or vote_winner(slot)
     if winner:
-        name += f" {winner['track_name']}"
+        name += f" {winner['track']['name']}"
     return name
 
 

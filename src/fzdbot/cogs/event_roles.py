@@ -24,9 +24,8 @@ import logging
 import discord
 from discord.ext import commands, tasks
 
-from fzdbot.api_types import Ggp8RegistrationResponse
 from fzdbot.error_alerts import send_error_alert
-from fzdbot.event_roles import division_holders, holders, unnamed
+from fzdbot.event_roles import division_holders, holders
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
@@ -60,21 +59,19 @@ class EventRoles(commands.Cog):
             return
 
         targets = [
-            (f"event={event_id}", role_id, holders(registrations, event_id), event_id)
+            (f"event={event_id}", role_id, holders(registrations, event_id))
             for event_id, role_id in settings.ggp8_event_roles.items()
         ] + [
-            (f"division={division_id}", role_id, division_holders(registrations, division_id), None)
+            (f"division={division_id}", role_id, division_holders(registrations, division_id))
             for division_id, role_id in settings.ggp8_division_roles.items()
         ]
-        for target, role_id, desired, event_id in targets:
+        for target, role_id, desired in targets:
             role = guild.get_role(role_id)
             if role is None:
                 logger.warning("[event roles] %s names role=%s, which this guild does not have", target, role_id)
                 continue
             try:
                 await self._reconcile(guild, role, target, desired)
-                if event_id is not None:
-                    self._report_unnamed(registrations, event_id)
                 self._failing.discard(target)
             except Exception as error:
                 logger.exception("[event roles] %s role=%s", target, role_id)
@@ -118,18 +115,6 @@ class EventRoles(commands.Cog):
         if absent:
             logger.info("[event roles] %s: %s of %s registered are not in the guild", target, len(absent), len(desired))
             logger.debug("[event roles] %s not in the guild: %s", target, absent)
-
-    def _report_unnamed(self, registrations: list[Ggp8RegistrationResponse], scheduled_event_id: int) -> None:
-        """Once per event, not per division: a division's members are the
-        event's, and a line per role would repeat the same names."""
-        nameless = unnamed(registrations, scheduled_event_id)
-        if nameless:
-            logger.info(
-                "[event roles] event=%s: %s registered under no Discord id: %s",
-                scheduled_event_id,
-                len(nameless),
-                ", ".join(nameless),
-            )
 
     async def _edit(self, member: discord.Member, role: discord.Role, target: str, *, add: bool) -> None:
         """One member's role changed, or the refusal logged and the pass carried on.

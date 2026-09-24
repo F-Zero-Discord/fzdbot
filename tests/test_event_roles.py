@@ -11,7 +11,7 @@ import pytest
 from fzdbot.api_types import Ggp8RegistrationResponse
 from fzdbot.cogs import event_roles as cog_module
 from fzdbot.cogs.event_roles import EventRoles
-from fzdbot.event_roles import division_holders, holders, unnamed
+from fzdbot.event_roles import division_holders, holders
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 
@@ -30,7 +30,7 @@ def registration(
         display_name="Ashes",
         tag=tag,
         discord_user_name=tag,
-        discord_user_id=None if snowflake is None else str(snowflake),
+        discord_user_id=str(snowflake),
         division_id=division_id,
         division="Waitlist" if waitlisted else "Ashes",
         division_alt_name=None,
@@ -55,16 +55,6 @@ def test_a_waitlisted_registrant_is_not():
 
 def test_another_events_registrants_are_another_roles_business():
     assert holders([registration(1), registration(2, event_id=REBIRTH)], ASHES) == {1}
-
-
-def test_a_registrant_with_no_snowflake_names_nobody():
-    assert holders([registration(None)], ASHES) == set()
-    assert unnamed([registration(None, tag="lurch")], ASHES) == ["lurch"]
-
-
-def test_the_waitlisted_are_not_reported_as_unnamed():
-    """They are left out for a reason that is not a missing id."""
-    assert unnamed([registration(None, waitlisted=True)], ASHES) == []
 
 
 def test_a_division_role_goes_to_that_divisions_members():
