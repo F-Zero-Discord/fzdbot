@@ -31,6 +31,7 @@ from fzdbot.api_types import EventResponse, MachineResponse, PlayerResultRespons
 from fzdbot.cogs.submissions import (
     DNF,
     TIME_EXAMPLE,
+    confirmation,
     machine_choices,
     machine_named,
     parse_score,
@@ -287,10 +288,12 @@ class GgpSubmissions(commands.Cog):
             await refuse(interaction, error.refusal())
             return
 
+        did = (
+            f"set {_value_phrase(method, value)} ({machine['name']}) "
+            f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}"
+        )
         await interaction.followup.send(
-            f"✅ User {interaction.user.display_name} has set {_value_phrase(method, value)} ({machine['name']}) "
-            f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}.",
-            ephemeral=self.confirm_ephemeral,
+            confirmation(interaction.user, self.confirm_ephemeral, did), ephemeral=self.confirm_ephemeral
         )
         logger.info(
             "[ggp_submissions] user=%s event=%s slot=%s %s=%s",

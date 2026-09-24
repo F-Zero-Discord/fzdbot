@@ -130,6 +130,15 @@ async def refuse(interaction: discord.Interaction, sentence: str) -> None:
         await interaction.response.send_message(sentence, ephemeral=True)
 
 
+def confirmation(user: discord.User | discord.Member, ephemeral: bool, did: str) -> str:
+    """`You have set a score of 87 for ...` when only the player sees it;
+    `✅ User Nick has set a score of 87 for ...` when the channel does.
+    """
+    if ephemeral:
+        return f"You have {did}."
+    return f"✅ User {user.display_name} has {did}."
+
+
 async def slot_ids(interaction: discord.Interaction, slot: str) -> tuple[int, int] | None:
     """The event and slot ids a choice carries, or `None` after telling the
     user why there is nothing to pick.
@@ -248,7 +257,8 @@ class Submissions(commands.Cog):
         """
         where = await self._describe(scheduled_event_id, slot_id)
         await interaction.followup.send(
-            f"✅ User {interaction.user.display_name} has {did} for {where}.", ephemeral=self.confirm_ephemeral
+            confirmation(interaction.user, self.confirm_ephemeral, f"{did} for {where}"),
+            ephemeral=self.confirm_ephemeral,
         )
 
     @app_commands.command(name="ggp_edit_score", description="Set your score for a slot that has started")
