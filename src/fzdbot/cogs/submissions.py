@@ -1,10 +1,11 @@
-"""`/submit_score`, `/submit_time` and `/delete_submission`: a player's result
-on one slot of a running event.
+"""`/ggp_edit_score`, `/ggp_edit_time` and `/delete_submission`: a player's
+result on one slot of a running event.
 
 A result is set, never added: submitting to a slot again replaces what it held,
 and `/delete_submission` returns the slot to nothing submitted. The slot picker
 spans every event running now, so a GGP weekend with two events on at once is
-one list. The interaction carries the event id and the slot id and nothing
+one list, and offers only the slots that have started: the one running now and
+the ones before it, not the ones still to come. The interaction carries the event id and the slot id and nothing
 else; which events are open, whether the slot takes a score or a time, and
 whether a machine must be named are the API's rules, and its refusal is the
 sentence the user reads.
@@ -33,6 +34,7 @@ MAX_CHOICES = 25  # Discord accepts at most 25 autocomplete results
 SLOT_VALUE = re.compile(r"^(\d+):(\d+)$")
 NO_EVENT = "no-event"
 NO_SCHEDULE = "no-schedule"
+NO_SLOT_STARTED = "no-slot-started"
 
 # Minutes, seconds and centiseconds, with any single non-digit between them:
 # 1:30.44, 1.30.44 and "1 30 44" are the same time.
@@ -84,6 +86,14 @@ def recency(slot: SlotResponse, now: datetime) -> tuple[int, float]:
     return (1, (starts_at - now).total_seconds())
 
 
+def upcoming(slot: SlotResponse, now: datetime) -> bool:
+    """A slot whose start is entered and still to come. A slot with no start
+    entered is not upcoming: nothing says when it runs, and a schedule with no
+    times entered at all has to stay pickable.
+    """
+    return slot["starts_at"] is not None and datetime.fromisoformat(slot["starts_at"]) > now
+
+
 def machine_named(machines: list[MachineResponse], name: str) -> MachineResponse:
     """The machine row named, matched without case. `ValueError` for a name the API does not list."""
     wanted = name.strip().casefold()
@@ -131,6 +141,8 @@ async def slot_ids(interaction: discord.Interaction, slot: str) -> tuple[int, in
         sentence = "No event is running right now, so there is no slot to pick."
     elif slot == NO_SCHEDULE:
         sentence = "The running event has no schedule entered, so it has no slot to pick. Tell FZD staff."
+    elif slot == NO_SLOT_STARTED:
+        sentence = "The running event's first slot has not started yet, so there is no slot to pick."
     else:
         sentence = "Pick a slot from the list."
     await refuse(interaction, sentence)
@@ -142,9 +154,10 @@ class Submissions(commands.Cog):
         self.bot = bot
 
     async def slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        """Every slot of every event running now, the one raced most recently
-        first. One placeholder when there is nothing to pick: no event, or an
-        event whose schedule has not been entered.
+        """Every started slot of every event running now, the one raced most
+        recently first; a slot still to come is left out. One placeholder when
+        there is nothing to pick: no event, an event whose schedule has not
+        been entered, or one whose first slot has not started.
         """
         try:
             events = await self.bot.api.active_events()
@@ -156,13 +169,21 @@ class Submissions(commands.Cog):
         if not events:
             return [app_commands.Choice(name="No event is running right now", value=NO_EVENT)]
 
+        if not any(schedules):
+            return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
+
         now = datetime.now(UTC)
         slots = sorted(
-            ((event, slot) for event, schedule in zip(events, schedules, strict=False) for slot in schedule),
+            (
+                (event, slot)
+                for event, schedule in zip(events, schedules, strict=False)
+                for slot in schedule
+                if not upcoming(slot, now)
+            ),
             key=lambda pair: recency(pair[1], now),
         )
         if not slots:
-            return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
+            return [app_commands.Choice(name="The first slot has not started yet", value=NO_SLOT_STARTED)]
 
         groups = await self._groups(interaction.user.id, schedules, now)
         needle = current.casefold()
@@ -227,13 +248,13 @@ class Submissions(commands.Cog):
         where = await self._describe(scheduled_event_id, slot_id)
         await interaction.followup.send(f"✅ User {interaction.user.display_name} has {did} for {where}.")
 
-    @app_commands.command(name="submit_score", description="Set your score for a slot of the running event")
+    @app_commands.command(name="ggp_edit_score", description="Set your score for a slot that has started")
     @app_commands.describe(
         slot="Which slot the score is for",
         score="Your points, or dnf",
         machine="The machine you raced, where the event records one",
     )
-    async def submit_score(
+    async def ggp_edit_score(
         self, interaction: discord.Interaction, slot: str, score: str, machine: str | None = None
     ) -> None:
         try:
@@ -276,13 +297,13 @@ class Submissions(commands.Cog):
             points,
         )
 
-    @app_commands.command(name="submit_time", description="Set your time for a slot of the running event")
+    @app_commands.command(name="ggp_edit_time", description="Set your time for a slot that has started")
     @app_commands.describe(
         slot="Which slot the time is for",
         time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf",
         machine="The machine you raced, where the event records one",
     )
-    async def submit_time(
+    async def ggp_edit_time(
         self, interaction: discord.Interaction, slot: str, time: str, machine: str | None = None
     ) -> None:
         try:
@@ -348,9 +369,9 @@ class Submissions(commands.Cog):
         logger.info("[submissions] user=%s event=%s slot=%s removed", interaction.user, scheduled_event_id, slot_id)
 
     async def cog_load(self) -> None:
-        for command in (self.submit_score, self.submit_time, self.delete_submission):
+        for command in (self.ggp_edit_score, self.ggp_edit_time, self.delete_submission):
             command.autocomplete("slot")(self.slot_autocomplete)
-        for command in (self.submit_score, self.submit_time):
+        for command in (self.ggp_edit_score, self.ggp_edit_time):
             command.autocomplete("machine")(self.machine_autocomplete)
 
 

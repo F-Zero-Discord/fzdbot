@@ -10,7 +10,8 @@ read from the clock at the write, so there is no list of slots to read. The
 running event is the one whose window holds now, and the active slot the one
 of its schedule that started most recently. Any other slot — one that is
 over, or one of another event running at the same time — is
-`/submit_score`'s and `/submit_time`'s, which offer every slot.
+`/ggp_edit_score`'s and `/ggp_edit_time`'s, which offer every slot that has
+started.
 
 `/ggp_submit` is the same write as a form: one modal that names the slot it
 is for, holds one field for the value and a radio button per machine, and
@@ -229,7 +230,7 @@ class GgpSubmissions(commands.Cog):
             return None
         if len(running) > 1:
             names = " and ".join(event_label(event) for event in running)
-            await refuse(interaction, f"{names} are both running right now; use `/submit_score` to pick the slot.")
+            await refuse(interaction, f"{names} are both running right now; use `/ggp_edit_score` to pick the slot.")
             return None
         event = running[0]
 
