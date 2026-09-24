@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     scoreboard_refresh_seconds: int = 10
     # Appends each player's submission count and per-slot results to their line.
     debug_scoreboard: bool = False
+    # Whether the sentence confirming a result write (`/ggp_submit`,
+    # `/ggp_submit_score`, `/ggp_submit_time`, `/ggp_edit_score`,
+    # `/ggp_edit_time`, `/delete_submission`) is shown only to the player.
+    # False posts it in the channel the command was run in, so a lobby sees
+    # what was set. Refusals are ephemeral either way.
+    submission_confirmation_ephemeral: bool = False
 
     @field_validator(
         "error_alert_channel_id",

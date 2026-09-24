@@ -80,6 +80,7 @@ Defaulted settings (used automatically if missing from `.env`):
 * `SCOREBOARD_DISPLAY_PODIUM` defaults to `false`
 * `SCOREBOARD_LINES_PER_BLOCK` defaults to `8`
 * `SCOREBOARD_REFRESH_SECONDS` defaults to `10`: how often a live board set up by `/setup_scoreboard` is re-read and, when its standings changed, edited
+* `SUBMISSION_CONFIRMATION_EPHEMERAL` defaults to `false`: `true` shows the sentence confirming a submitted, edited or deleted result only to the player instead of posting it in the channel
 
 What happens when values are missing or empty:
 

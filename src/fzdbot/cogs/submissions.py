@@ -120,8 +120,8 @@ async def machine_choices(api: FzdApi, current: str) -> list[app_commands.Choice
 
 
 async def refuse(interaction: discord.Interaction, sentence: str) -> None:
-    """Ephemeral either way. Once the public deferral is out, its placeholder
-    is removed first, so the channel never shows a refusal.
+    """Ephemeral either way. Once a deferral is out, its placeholder is
+    removed first, so a public deferral never leaves a refusal in the channel.
     """
     if interaction.response.is_done():
         await interaction.delete_original_response()
@@ -152,6 +152,7 @@ async def slot_ids(interaction: discord.Interaction, slot: str) -> tuple[int, in
 class Submissions(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
+        self.confirm_ephemeral = get_settings().submission_confirmation_ephemeral
 
     async def slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         """Every started slot of every event running now, the one raced most
@@ -242,11 +243,13 @@ class Submissions(commands.Cog):
         return f"{where} {slot_name(slot) if slot else f'slot {slot_id}'}"
 
     async def _confirm(self, interaction: discord.Interaction, scheduled_event_id: int, slot_id: int, did: str) -> None:
-        """Public, in the channel the command was run in, so a lobby sees what
-        was set. This replaces the deferral's placeholder.
+        """Replaces the deferral's placeholder, so it is in the channel or only
+        the player's, whichever the deferral was.
         """
         where = await self._describe(scheduled_event_id, slot_id)
-        await interaction.followup.send(f"✅ User {interaction.user.display_name} has {did} for {where}.")
+        await interaction.followup.send(
+            f"✅ User {interaction.user.display_name} has {did} for {where}.", ephemeral=self.confirm_ephemeral
+        )
 
     @app_commands.command(name="ggp_edit_score", description="Set your score for a slot that has started")
     @app_commands.describe(
@@ -266,7 +269,7 @@ class Submissions(commands.Cog):
         if ids is None:
             return
         scheduled_event_id, slot_id = ids
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
 
         try:
             machine_id = await self._machine_id(machine)
@@ -318,7 +321,7 @@ class Submissions(commands.Cog):
         if ids is None:
             return
         scheduled_event_id, slot_id = ids
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
 
         try:
             machine_id = await self._machine_id(machine)
@@ -356,7 +359,7 @@ class Submissions(commands.Cog):
         if ids is None:
             return
         scheduled_event_id, slot_id = ids
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
 
         try:
             await self.bot.api.delete_result(interaction.user.id, scheduled_event_id, slot_id, datetime.now(UTC))

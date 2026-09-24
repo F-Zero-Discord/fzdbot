@@ -205,13 +205,14 @@ class SubmitModal(discord.ui.Modal):
         except ValueError:
             await refuse(interaction, parse_hint(self.method))
             return
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=self.cog.confirm_ephemeral)
         await self.cog.write(interaction, self.event, self.slot, self.method, value, self.picked_machine())
 
 
 class GgpSubmissions(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
+        self.confirm_ephemeral = get_settings().submission_confirmation_ephemeral
 
     async def machine_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -262,9 +263,10 @@ class GgpSubmissions(commands.Cog):
         value: int | None,
         machine: MachineResponse,
     ) -> None:
-        """Set `value` on the slot for the caller, then confirm publicly, naming
-        what it replaced where the caller had a result on the slot. The
-        interaction is already deferred publicly.
+        """Set `value` on the slot for the caller, then confirm, naming what it
+        replaced where the caller had a result on the slot. The interaction is
+        already deferred, with `confirm_ephemeral`, and the confirmation
+        replaces that placeholder.
         """
         now = datetime.now(UTC)
         try:
@@ -287,7 +289,8 @@ class GgpSubmissions(commands.Cog):
 
         await interaction.followup.send(
             f"✅ User {interaction.user.display_name} has set {_value_phrase(method, value)} ({machine['name']}) "
-            f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}."
+            f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}.",
+            ephemeral=self.confirm_ephemeral,
         )
         logger.info(
             "[ggp_submissions] user=%s event=%s slot=%s %s=%s",
@@ -300,7 +303,7 @@ class GgpSubmissions(commands.Cog):
 
     async def _submit(self, interaction: discord.Interaction, method: Method, value: int | None, machine: str) -> None:
         """Resolve the active slot and the machine named, then `write`."""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
         try:
             active = await self._active(interaction, datetime.now(UTC))
             if active is None:
