@@ -17,6 +17,7 @@ from fzdbot.api_types import (
     LiveScoreboardResponse,
     MachineResponse,
     PlayerResultResponse,
+    PlayerStandingResponse,
     PlayerTagResponse,
     RegistrationEventResponse,
     RivalEventResponse,
@@ -196,6 +197,18 @@ class FzdApi:
         """
         return await self._request(
             "GET", f"/v1/players/{discord_user_id}/results?scheduled_event_id={scheduled_event_id}"
+        )
+
+    async def player_standing(self, discord_user_id: int, scheduled_event_id: int) -> PlayerStandingResponse:
+        """The player's own row on the event's board, as the scoreboard lists
+        it: one result per slot with its `value`, whether it is `counted`,
+        its `machine` and on a time event its `loss_cs` before the cap, then
+        `total` and `rank`; `row` is `None` for a player with no result on
+        the event. The scoring rules the row was computed under come beside
+        it. 404 for an unknown event.
+        """
+        return await self._request(
+            "GET", f"/v1/players/{discord_user_id}/standing?scheduled_event_id={scheduled_event_id}"
         )
 
     async def active_events(self) -> list[EventResponse]:

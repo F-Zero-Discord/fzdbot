@@ -1,7 +1,10 @@
 """`/ggp_submit`, `/ggp_submit_score` and `/ggp_submit_time`: a result on the
 running event's active slot, with a machine always named.
 `/ggp_show_submissions`: the caller's own results on an event, one line per
-slot of its schedule, so the gaps are visible.
+slot of its schedule, so the gaps are visible — and beside each result what
+the board makes of it, read from the API's own standing for the player:
+the multiplier applied, the loss to the leader and the cap on a time event,
+and which results the mulligans dropped. Nothing here scores a result.
 
 The names say GGP, but nothing here asks whether an event is GGP8's: a weekly
 is taken the same way, so the commands can be tried on one. The player types
@@ -27,7 +30,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from fzdbot.api_types import EventResponse, MachineResponse, PlayerResultResponse, SlotResponse
+from fzdbot.api_types import (
+    EventResponse,
+    MachineResponse,
+    PlayerResultResponse,
+    PlayerStandingResponse,
+    SlotResponse,
+    SlotResultResponse,
+)
 from fzdbot.cogs.submissions import (
     DNF,
     TIME_EXAMPLE,
@@ -42,7 +52,7 @@ from fzdbot.cogs.submissions import (
 from fzdbot.fzd_api import FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.scoreboards import DNF as DNF_MARK
-from fzdbot.scoreboards import event_label, format_time, slot_name
+from fzdbot.scoreboards import event_label, format_loss, format_time, scoring_notes, slot_name
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -101,36 +111,99 @@ def held_value(method: Method, row: PlayerResultResponse) -> str:
     return str(value) if method == "score" else format_time(value)
 
 
-def result_mark(method: Method, row: PlayerResultResponse) -> str:
-    """The row's value as a board spells it: `820`, `1:30.44` or `DNF`."""
-    value = row["score"] if method == "score" else row["time_cs"]
-    if value is None:
-        return DNF_MARK
-    return str(value) if method == "score" else format_time(value)
-
-
-def result_lines(method: Method, schedule: list[SlotResponse], results: list[PlayerResultResponse]) -> list[str]:
-    """One line per slot of the schedule, in its order: the slot, then the
-    caller's result with its machine, or `not submitted`.
+def result_lines(schedule: list[SlotResponse], standing: PlayerStandingResponse) -> list[str]:
+    """One line per slot of the schedule, in its order: the slot, then what
+    the caller submitted and what the board makes of it, with the machine,
+    ~~struck~~ where the result does not count. Every slot reads
+    `not submitted` for a player with no row on the board.
     """
-    held = {row["slot_id"]: row for row in results}
+    row = standing["row"]
+    if row is None:
+        return [f"{slot_name(slot)} — not submitted" for slot in schedule]
+    timed = standing["scoring_method"] == "time"
+    results = {result["slot_id"]: result for result in row["results"]}
     lines: list[str] = []
     for slot in schedule:
-        row = held.get(slot["slot_id"])
-        if row is None:
-            result = "not submitted"
-        elif row["machine"] is None:
-            result = result_mark(method, row)
-        else:
-            result = f"{result_mark(method, row)} · {row['machine']}"
-        lines.append(f"{slot_name(slot)} — {result}")
+        result = results[slot["slot_id"]]
+        shown = _time_mark(result) if timed else _score_mark(result, slot["multiplier"])
+        if result["machine"] is not None:
+            shown += f" · {result['machine']}"
+        if not result["counted"]:
+            shown = f"~~{shown}~~ (dropped)"
+        lines.append(f"{slot_name(slot)} — {shown}")
     return lines
+
+
+def _score_mark(result: SlotResultResponse, multiplier: int) -> str:
+    """`820`, or `250 ×3 = 750` on a slot that multiplies; `DNF`; `not submitted`."""
+    if not result["submitted"]:
+        return "not submitted"
+    score = result["score"]
+    if score is None:
+        return DNF_MARK
+    return f"{score} ×{multiplier} = {result['value']}" if multiplier != 1 else str(score)
+
+
+def _time_mark(result: SlotResultResponse) -> str:
+    """`2:09.40 (+5.04s)`; `2:29.40 (+25.04s, capped to +20.00s)` where the
+    loss exceeds the cap; `DNF (+20.00s)` and `not submitted (+20.00s)`, which
+    cost the cap. No loss on a slot nobody has finished, which costs nobody
+    anything, nor for a no-finish on an uncapped event, which has no value.
+    """
+    if not result["submitted"]:
+        shown = "not submitted"
+    elif result["time_cs"] is None:
+        shown = DNF_MARK
+    else:
+        shown = format_time(result["time_cs"])
+    value = result["value"]
+    loss = result["loss_cs"]
+    if not result["open"] or value is None:
+        return shown
+    if loss is not None and loss != value:
+        return f"{shown} ({format_loss(loss)}, capped to {format_loss(value)})"
+    return f"{shown} ({format_loss(value)})"
+
+
+def standing_footer(schedule: list[SlotResponse], standing: PlayerStandingResponse) -> str:
+    """`3 of 5 slots submitted · total 1650 · rank 2`, the total and the rank
+    left out where the board has none for the player.
+    """
+    row = standing["row"]
+    if row is None:
+        return f"0 of {len(schedule)} slots submitted"
+    submitted = sum(result["submitted"] for result in row["results"])
+    parts = [f"{submitted} of {len(schedule)} slots submitted"]
+    if row["total"] is not None:
+        timed = standing["scoring_method"] == "time"
+        parts.append(f"total {format_loss(row['total']) if timed else row['total']}")
+    if row["rank"] is not None:
+        parts.append(f"rank {row['rank']}")
+    return " · ".join(parts)
 
 
 def _value_phrase(method: Method, value: int | None) -> str:
     if value is None:
         return "DNF"
-    return f"a score of {value}" if method == "score" else f"a time of {format_time(value)}"
+    return f"{value} points" if method == "score" else f"a time of {format_time(value)}"
+
+
+def _score_notes(slot: SlotResponse, score: int) -> list[str]:
+    """The lines after a score's confirmation: what the slot's multiplier
+    makes of it, and a warning where it is more than the slot's mode can
+    score, which is most often a score multiplied before it was entered.
+    """
+    notes: list[str] = []
+    multiplier = slot["multiplier"]
+    if multiplier != 1:
+        notes.append(f"With the ×{multiplier} multiplier, that is {score * multiplier} points.")
+    ceiling = slot["max_score"]
+    if ceiling is not None and score > ceiling:
+        notes.append(
+            f"⚠️ That is more than the {ceiling} a {slot['mode']} can score. "
+            "Did you multiply it first? Submit it again as the game shows it. ⚠️"
+        )
+    return notes
 
 
 def _replaced_phrase(method: Method, row: PlayerResultResponse | None) -> str:
@@ -171,6 +244,12 @@ class SubmitModal(discord.ui.Modal):
                 f"\nYou already submitted {held_value(self.method, previous)} ({previous['machine']}) "
                 f"at <t:{set_at}:t>. Submitting again replaces it."
             )
+        multiplier = slot["multiplier"] if self.method == "score" else 1
+        if multiplier != 1:
+            heading += (
+                f"\n⚠️ This slot has a ×{multiplier} multiplier. "
+                "Enter your score as the game shows it. Do not multiply before submission. ⚠️"
+            )
         self.add_item(discord.ui.TextDisplay(heading))
 
         self.value = discord.ui.TextInput(
@@ -181,7 +260,7 @@ class SubmitModal(discord.ui.Modal):
         self.add_item(
             discord.ui.Label(
                 text="Score" if self.method == "score" else "Time (m:ss.cc)",
-                description=f"or {DNF}",
+                description=self._value_hint(multiplier),
                 component=self.value,
             )
         )
@@ -194,6 +273,11 @@ class SubmitModal(discord.ui.Modal):
                 default=previous is not None and previous["machine_id"] == machine["machine_id"],
             )
         self.add_item(discord.ui.Label(text="Machine", component=self.machine))
+
+    def _value_hint(self, multiplier: int) -> str | None:
+        if self.method == "time":
+            return 'or write "DNF" if you did not finish'
+        return f"before the ×{multiplier} multiplier" if multiplier != 1 else None
 
     def picked_machine(self) -> MachineResponse:
         """The option the player selected, as the machine row it was built from."""
@@ -289,12 +373,13 @@ class GgpSubmissions(commands.Cog):
             return
 
         did = (
-            f"set {_value_phrase(method, value)} ({machine['name']}) "
+            f"submitted {_value_phrase(method, value)} ({machine['name']}) "
             f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}"
         )
-        await interaction.followup.send(
-            confirmation(interaction.user, self.confirm_ephemeral, did), ephemeral=self.confirm_ephemeral
-        )
+        lines = [confirmation(interaction.user, self.confirm_ephemeral, did)]
+        if method == "score" and value is not None:
+            lines += _score_notes(slot, value)
+        await interaction.followup.send("\n".join(lines), ephemeral=self.confirm_ephemeral)
         logger.info(
             "[ggp_submissions] user=%s event=%s slot=%s %s=%s",
             interaction.user,
@@ -404,9 +489,9 @@ class GgpSubmissions(commands.Cog):
                 if chosen is None:
                     await interaction.followup.send("Pick the event from the list the command offers.", ephemeral=True)
                     return
-            schedule, results = await asyncio.gather(
+            schedule, standing = await asyncio.gather(
                 self.bot.api.schedule(chosen["scheduled_event_id"]),
-                self.bot.api.player_results(interaction.user.id, chosen["scheduled_event_id"]),
+                self.bot.api.player_standing(interaction.user.id, chosen["scheduled_event_id"]),
             )
         except FzdApiError as error:
             logger.warning("[ggp_submissions] show could not read the API for user=%s: %s", interaction.user, error)
@@ -420,12 +505,12 @@ class GgpSubmissions(commands.Cog):
             )
             return
 
+        notes = scoring_notes(standing, standing["scoring_method"] == "time")
+        lines = result_lines(schedule, standing)
         embed = discord.Embed(
-            title=event_label(chosen), description="\n".join(result_lines(method_of(chosen), schedule, results))
+            title=event_label(chosen), description="\n".join([*notes, "", *lines] if notes else lines)
         )
-        held = {row["slot_id"] for row in results}
-        submitted = sum(slot["slot_id"] in held for slot in schedule)
-        embed.set_footer(text=f"{submitted} of {len(schedule)} slots submitted")
+        embed.set_footer(text=standing_footer(schedule, standing))
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def cog_load(self) -> None:

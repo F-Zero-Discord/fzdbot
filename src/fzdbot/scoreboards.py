@@ -17,6 +17,7 @@ from fzdbot.api_types import (
     LobbyVoteWinnerResponse,
     ScoreboardResponse,
     ScoreboardRowResponse,
+    ScoringConfigResponse,
     SlotResponse,
     SlotResultResponse,
 )
@@ -135,7 +136,7 @@ def _board(
     timed = scoreboard["scoring_method"] == "time"
     slots = detail["slots"]
     multipliers = {slot["slot_id"]: slot["multiplier"] for slot in slots}
-    board = Board(title, group_id, notes=_notes(scoreboard, timed))
+    board = Board(title, group_id, notes=scoring_notes(scoreboard, timed))
     if not rows:
         return board
 
@@ -169,7 +170,11 @@ def _board(
     return board
 
 
-def _notes(scoreboard: ScoreboardResponse, timed: bool) -> list[str]:
+def scoring_notes(scoreboard: ScoringConfigResponse, timed: bool) -> list[str]:
+    """The rules a board is read under, one line each: the time cap, the
+    machine rule and the mulligans. Any payload carrying the three scoring
+    fields serves, the scoreboard and a player's own standing both.
+    """
     notes = []
     if timed:
         cap = scoreboard["max_time_loss_cs"]

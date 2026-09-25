@@ -48,6 +48,8 @@ def result(
         "submitted": submitted,
         "counted": counted,
         "open": open,
+        "loss_cs": None,
+        "machine": None,
     }
 
 
