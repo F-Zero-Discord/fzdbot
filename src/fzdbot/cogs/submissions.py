@@ -5,10 +5,11 @@ A result is set, never added: submitting to a slot again replaces what it held,
 and `/delete_submission` returns the slot to nothing submitted. The slot picker
 spans every event running now, so a GGP weekend with two events on at once is
 one list, and offers only the slots that have started: the one running now and
-the ones before it, not the ones still to come. The interaction carries the event id and the slot id and nothing
-else; which events are open, whether the slot takes a score or a time, and
-whether a machine must be named are the API's rules, and its refusal is the
-sentence the user reads.
+the ones before it, not the ones still to come. The interaction carries the
+event id and the slot id and nothing else; which events are open and whether
+the slot takes a score or a time are the API's rules, and its refusal is the
+sentence the user reads. Both writes take a machine on every call, whatever
+the event records.
 """
 
 import asyncio
@@ -229,9 +230,7 @@ class Submissions(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return await machine_choices(self.bot.api, current)
 
-    async def _machine_id(self, machine: str | None) -> int | None:
-        if machine is None:
-            return None
+    async def _machine_id(self, machine: str) -> int:
         return machine_named(await self.bot.api.machines(), machine)["machine_id"]
 
     async def _describe(self, scheduled_event_id: int, slot_id: int) -> str:
@@ -265,11 +264,9 @@ class Submissions(commands.Cog):
     @app_commands.describe(
         slot="Which slot the score is for",
         score="Your points, or dnf",
-        machine="The machine you raced, where the event records one",
+        machine="The machine you raced",
     )
-    async def ggp_edit_score(
-        self, interaction: discord.Interaction, slot: str, score: str, machine: str | None = None
-    ) -> None:
+    async def ggp_edit_score(self, interaction: discord.Interaction, slot: str, score: str, machine: str) -> None:
         try:
             points = parse_score(score)
         except ValueError:
@@ -314,11 +311,9 @@ class Submissions(commands.Cog):
     @app_commands.describe(
         slot="Which slot the time is for",
         time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf",
-        machine="The machine you raced, where the event records one",
+        machine="The machine you raced",
     )
-    async def ggp_edit_time(
-        self, interaction: discord.Interaction, slot: str, time: str, machine: str | None = None
-    ) -> None:
+    async def ggp_edit_time(self, interaction: discord.Interaction, slot: str, time: str, machine: str) -> None:
         try:
             time_cs = parse_time(time)
         except ValueError:
