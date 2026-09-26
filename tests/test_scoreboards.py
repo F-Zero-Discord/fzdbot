@@ -64,6 +64,7 @@ def row(
     emote: str | None = None,
 ) -> ScoreboardRowResponse:
     return {
+        "discord_user_id": None,
         "display_name": name,
         "emote": emote,
         "group_id": group_id,

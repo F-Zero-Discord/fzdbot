@@ -128,6 +128,7 @@ def standing(
     row: ScoreboardRowResponse | None = None
     if results is not None:
         row = {
+            "discord_user_id": None,
             "display_name": "lurch",
             "emote": None,
             "group_id": None,
