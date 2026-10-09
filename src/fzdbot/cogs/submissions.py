@@ -1,5 +1,5 @@
-"""`/ggp_edit_score`, `/ggp_edit_time` and `/delete_submission`: a player's
-result on one slot of a running event.
+"""`/edit_score`, `/edit_time` and `/delete_submission`: a player's result
+on one slot of a running event.
 
 A result is set, never added: submitting to a slot again replaces what it held,
 and `/delete_submission` returns the slot to nothing submitted. The slot picker
@@ -8,8 +8,9 @@ one list, and offers only the slots that have started: the one running now and
 the ones before it, not the ones still to come. The interaction carries the
 event id and the slot id and nothing else; which events are open and whether
 the slot takes a score or a time are the API's rules, and its refusal is the
-sentence the user reads. Both writes take a machine on every call, whatever
-the event records.
+sentence the user reads. So is whether the write needs a machine: both
+writes send the one named, or none, and the API refuses a write without one
+on an event that records it.
 """
 
 import asyncio
@@ -42,6 +43,7 @@ NO_SLOT_STARTED = "no-slot-started"
 TIME = re.compile(r"^0?(\d)\D(\d{2})\D(\d{2})$")
 TIME_EXAMPLE = "1:30.44"
 DNF = "dnf"
+MACHINE_OPTION = "The machine you raced; needed on an event that records it"
 
 
 def parse_score(text: str) -> int | None:
@@ -230,7 +232,9 @@ class Submissions(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return await machine_choices(self.bot.api, current)
 
-    async def _machine_id(self, machine: str) -> int:
+    async def _machine_id(self, machine: str | None) -> int | None:
+        if machine is None:
+            return None
         return machine_named(await self.bot.api.machines(), machine)["machine_id"]
 
     async def _describe(self, scheduled_event_id: int, slot_id: int) -> str:
@@ -260,13 +264,15 @@ class Submissions(commands.Cog):
             ephemeral=self.confirm_ephemeral,
         )
 
-    @app_commands.command(name="ggp_edit_score", description="Set your score for a slot that has started")
+    @app_commands.command(name="edit_score", description="Set your score for a slot that has started")
     @app_commands.describe(
         slot="Which slot the score is for",
         score="Your points, or dnf",
-        machine="The machine you raced",
+        machine=MACHINE_OPTION,
     )
-    async def ggp_edit_score(self, interaction: discord.Interaction, slot: str, score: str, machine: str) -> None:
+    async def edit_score(
+        self, interaction: discord.Interaction, slot: str, score: str, machine: str | None = None
+    ) -> None:
         try:
             points = parse_score(score)
         except ValueError:
@@ -307,13 +313,15 @@ class Submissions(commands.Cog):
             points,
         )
 
-    @app_commands.command(name="ggp_edit_time", description="Set your time for a slot that has started")
+    @app_commands.command(name="edit_time", description="Set your time for a slot that has started")
     @app_commands.describe(
         slot="Which slot the time is for",
         time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf",
-        machine="The machine you raced",
+        machine=MACHINE_OPTION,
     )
-    async def ggp_edit_time(self, interaction: discord.Interaction, slot: str, time: str, machine: str) -> None:
+    async def edit_time(
+        self, interaction: discord.Interaction, slot: str, time: str, machine: str | None = None
+    ) -> None:
         try:
             time_cs = parse_time(time)
         except ValueError:
@@ -377,9 +385,9 @@ class Submissions(commands.Cog):
         logger.info("[submissions] user=%s event=%s slot=%s removed", interaction.user, scheduled_event_id, slot_id)
 
     async def cog_load(self) -> None:
-        for command in (self.ggp_edit_score, self.ggp_edit_time, self.delete_submission):
+        for command in (self.edit_score, self.edit_time, self.delete_submission):
             command.autocomplete("slot")(self.slot_autocomplete)
-        for command in (self.ggp_edit_score, self.ggp_edit_time):
+        for command in (self.edit_score, self.edit_time):
             command.autocomplete("machine")(self.machine_autocomplete)
 
 

@@ -1,24 +1,25 @@
-"""`/ggp_submit`, `/ggp_submit_score` and `/ggp_submit_time`: a result on the
-running event's active slot, with a machine always named.
-`/ggp_show_submissions`: the caller's own results on an event, one line per
+"""`/submit`, `/submit_score` and `/submit_time`: a result on the running
+event's active slot, with a machine named where the event records one.
+`/show_submissions`: the caller's own results on an event, one line per
 slot of its schedule, so the gaps are visible — and beside each result what
 the board makes of it, read from the API's own standing for the player:
 the multiplier applied, the loss to the leader and the cap on a time event,
 and which results the mulligans dropped. Nothing here scores a result.
 
-The names say GGP, but nothing here asks whether an event is GGP8's: a weekly
-is taken the same way, so the commands can be tried on one. The player types
-a value and picks a machine, and nothing else: which event and which slot are
-read from the clock at the write, so there is no list of slots to read. The
+Nothing here asks whether an event is GGP8's: a weekly is taken the same
+way, so the commands can be tried on one. The player types a value and, where
+the event records it, picks a machine, and nothing else: which event and which
+slot are read from the clock at the write, so there is no list of slots to read. The
 running event is the one whose window holds now, and the active slot the one
 of its schedule that started most recently. Any other slot — one that is
 over, or one of another event running at the same time — is
-`/ggp_edit_score`'s and `/ggp_edit_time`'s, which offer every slot that has
+`/edit_score`'s and `/edit_time`'s, which offer every slot that has
 started.
 
-`/ggp_submit` is the same write as a form: one modal that names the slot it
-is for, holds one field for the value and a radio button per machine, and
-shows what the caller already holds on the slot before they replace it.
+`/submit` is the same write as a form: one modal that names the slot it is
+for, holds one field for the value and, on an event that records the machine,
+a radio button per machine, and shows what the caller already holds on the
+slot before they replace it.
 """
 
 import asyncio
@@ -40,6 +41,7 @@ from fzdbot.api_types import (
 )
 from fzdbot.cogs.submissions import (
     DNF,
+    MACHINE_OPTION,
     TIME_EXAMPLE,
     confirmation,
     machine_choices,
@@ -218,9 +220,10 @@ def _replaced_phrase(method: Method, row: PlayerResultResponse | None) -> str:
 
 class SubmitModal(discord.ui.Modal):
     """One form for one slot: the event and slot it was built for, a field for
-    the value, and a radio button per machine. Discord refuses the form without
-    a machine picked, so nothing here checks for one. The value and the machine
-    arrive with the submission; the write is the cog's.
+    the value, and a radio button per machine where the event records one.
+    Discord refuses the form without a machine picked, so nothing here checks
+    for one. The value and the machine arrive with the submission; the write
+    is the cog's.
     """
 
     def __init__(
@@ -240,10 +243,10 @@ class SubmitModal(discord.ui.Modal):
         heading = f"**You are now submitting to**\n{event_label(event)} {slot_name(slot)}"
         if previous is not None:
             set_at = int(datetime.fromisoformat(previous["modified_dt"]).timestamp())
-            heading += (
-                f"\nYou already submitted {held_value(self.method, previous)} ({previous['machine']}) "
-                f"at <t:{set_at}:t>. Submitting again replaces it."
-            )
+            held = held_value(self.method, previous)
+            if previous["machine"] is not None:
+                held += f" ({previous['machine']})"
+            heading += f"\nYou already submitted {held} at <t:{set_at}:t>. Submitting again replaces it."
         multiplier = slot["multiplier"] if self.method == "score" else 1
         if multiplier != 1:
             heading += (
@@ -265,22 +268,28 @@ class SubmitModal(discord.ui.Modal):
             )
         )
 
-        self.machine = discord.ui.RadioGroup(required=True)
-        for machine in machines:
-            self.machine.add_option(
-                label=machine["name"],
-                value=str(machine["machine_id"]),
-                default=previous is not None and previous["machine_id"] == machine["machine_id"],
-            )
-        self.add_item(discord.ui.Label(text="Machine", component=self.machine))
+        self.machine: discord.ui.RadioGroup | None = None
+        if event["machine_input_required"]:
+            self.machine = discord.ui.RadioGroup(required=True)
+            for machine in machines:
+                self.machine.add_option(
+                    label=machine["name"],
+                    value=str(machine["machine_id"]),
+                    default=previous is not None and previous["machine_id"] == machine["machine_id"],
+                )
+            self.add_item(discord.ui.Label(text="Machine", component=self.machine))
 
     def _value_hint(self, multiplier: int) -> str | None:
         if self.method == "time":
             return 'or write "DNF" if you did not finish'
         return f"before the ×{multiplier} multiplier" if multiplier != 1 else None
 
-    def picked_machine(self) -> MachineResponse:
-        """The option the player selected, as the machine row it was built from."""
+    def picked_machine(self) -> MachineResponse | None:
+        """The option the player selected, as the machine row it was built from;
+        `None` on an event that records no machine.
+        """
+        if self.machine is None:
+            return None
         option = next(option for option in self.machine.options if option.value == self.machine.value)
         return {"machine_id": int(option.value), "name": option.label}
 
@@ -316,7 +325,7 @@ class GgpSubmissions(commands.Cog):
             return None
         if len(running) > 1:
             names = " and ".join(event_label(event) for event in running)
-            await refuse(interaction, f"{names} are both running right now; use `/ggp_edit_score` to pick the slot.")
+            await refuse(interaction, f"{names} are both running right now; use `/edit_score` to pick the slot.")
             return None
         event = running[0]
 
@@ -346,11 +355,12 @@ class GgpSubmissions(commands.Cog):
         slot: SlotResponse,
         method: Method,
         value: int | None,
-        machine: MachineResponse,
+        machine: MachineResponse | None,
     ) -> None:
         """Set `value` on the slot for the caller, then confirm, naming what it
-        replaced where the caller had a result on the slot. The interaction is
-        already deferred, with `confirm_ephemeral`, and the confirmation
+        replaced where the caller had a result on the slot. A missing machine
+        on an event that records one is the API's to refuse. The interaction
+        is already deferred, with `confirm_ephemeral`, and the confirmation
         replaces that placeholder.
         """
         now = datetime.now(UTC)
@@ -364,7 +374,7 @@ class GgpSubmissions(commands.Cog):
                 event["scheduled_event_id"],
                 slot["slot_id"],
                 value,
-                machine["machine_id"],
+                machine["machine_id"] if machine is not None else None,
                 now,
             )
         except FzdApiError as error:
@@ -372,10 +382,10 @@ class GgpSubmissions(commands.Cog):
             await refuse(interaction, error.refusal())
             return
 
-        did = (
-            f"submitted {_value_phrase(method, value)} ({machine['name']}) "
-            f"for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}"
-        )
+        did = f"submitted {_value_phrase(method, value)}"
+        if machine is not None:
+            did += f" ({machine['name']})"
+        did += f" for {event_label(event)} {slot_name(slot)}{_replaced_phrase(method, previous)}"
         lines = [confirmation(interaction.user, self.confirm_ephemeral, did)]
         if method == "score" and value is not None:
             lines += _score_notes(slot, value)
@@ -389,14 +399,16 @@ class GgpSubmissions(commands.Cog):
             value,
         )
 
-    async def _submit(self, interaction: discord.Interaction, method: Method, value: int | None, machine: str) -> None:
-        """Resolve the active slot and the machine named, then `write`."""
+    async def _submit(
+        self, interaction: discord.Interaction, method: Method, value: int | None, machine: str | None
+    ) -> None:
+        """Resolve the active slot and the machine named, if one was, then `write`."""
         await interaction.response.defer(ephemeral=self.confirm_ephemeral)
         try:
             active = await self._active(interaction, datetime.now(UTC))
             if active is None:
                 return
-            machine_row = machine_named(await self.bot.api.machines(), machine)
+            machine_row = machine_named(await self.bot.api.machines(), machine) if machine is not None else None
         except ValueError:
             await refuse(interaction, "Pick a machine from the list.")
             return
@@ -409,8 +421,8 @@ class GgpSubmissions(commands.Cog):
         event, slot = active
         await self.write(interaction, event, slot, method, value, machine_row)
 
-    @app_commands.command(name="ggp_submit", description="Submit your result for the GGP slot that just ran")
-    async def ggp_submit(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="submit", description="Submit your result for the slot that just ran")
+    async def submit(self, interaction: discord.Interaction) -> None:
         """The modal is the response, so the reads run inside Discord's
         three-second budget with no deferral; a read that fails is an
         ephemeral sentence instead of the form.
@@ -420,10 +432,8 @@ class GgpSubmissions(commands.Cog):
             if active is None:
                 return
             event, slot = active
-            machines, results = await asyncio.gather(
-                self.bot.api.machines(),
-                self.bot.api.player_results(interaction.user.id, event["scheduled_event_id"]),
-            )
+            results = await self.bot.api.player_results(interaction.user.id, event["scheduled_event_id"])
+            machines = await self.bot.api.machines() if event["machine_input_required"] else []
         except FzdApiError as error:
             logger.warning("[ggp_submissions] modal could not read the API for user=%s: %s", interaction.user, error)
             await refuse(interaction, error.refusal())
@@ -431,9 +441,9 @@ class GgpSubmissions(commands.Cog):
         previous = next((row for row in results if row["slot_id"] == slot["slot_id"]), None)
         await interaction.response.send_modal(SubmitModal(self, event, slot, machines, previous))
 
-    @app_commands.command(name="ggp_submit_score", description="Set your score for the GGP slot that just ran")
-    @app_commands.describe(score="Your points, or dnf", machine="The machine you raced")
-    async def ggp_submit_score(self, interaction: discord.Interaction, score: str, machine: str) -> None:
+    @app_commands.command(name="submit_score", description="Set your score for the slot that just ran")
+    @app_commands.describe(score="Your points, or dnf", machine=MACHINE_OPTION)
+    async def submit_score(self, interaction: discord.Interaction, score: str, machine: str | None = None) -> None:
         try:
             points = parse_score(score)
         except ValueError:
@@ -441,11 +451,11 @@ class GgpSubmissions(commands.Cog):
             return
         await self._submit(interaction, "score", points, machine)
 
-    @app_commands.command(name="ggp_submit_time", description="Set your time for the GGP slot that just ran")
+    @app_commands.command(name="submit_time", description="Set your time for the slot that just ran")
     @app_commands.describe(
-        time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf", machine="The machine you raced"
+        time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf", machine=MACHINE_OPTION
     )
-    async def ggp_submit_time(self, interaction: discord.Interaction, time: str, machine: str) -> None:
+    async def submit_time(self, interaction: discord.Interaction, time: str, machine: str | None = None) -> None:
         try:
             time_cs = parse_time(time)
         except ValueError:
@@ -468,9 +478,9 @@ class GgpSubmissions(commands.Cog):
             if typed in event_label(event).casefold()
         ][:MAX_CHOICES]
 
-    @app_commands.command(name="ggp_show_submissions", description="Your results on an event, slot by slot")
+    @app_commands.command(name="show_submissions", description="Your results on an event, slot by slot")
     @app_commands.describe(event="A GGP8 event or one running now; left out, the one running or up next")
-    async def ggp_show_submissions(self, interaction: discord.Interaction, event: str | None = None) -> None:
+    async def show_submissions(self, interaction: discord.Interaction, event: str | None = None) -> None:
         if event is not None and not event.isdigit():
             await refuse(interaction, "Pick the event from the list the command offers.")
             return
@@ -514,9 +524,9 @@ class GgpSubmissions(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def cog_load(self) -> None:
-        for command in (self.ggp_submit_score, self.ggp_submit_time):
+        for command in (self.submit_score, self.submit_time):
             command.autocomplete("machine")(self.machine_autocomplete)
-        self.ggp_show_submissions.autocomplete("event")(self.event_autocomplete)
+        self.show_submissions.autocomplete("event")(self.event_autocomplete)
 
 
 async def setup(bot: FZDBot) -> None:
