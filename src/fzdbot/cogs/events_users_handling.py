@@ -1,4 +1,4 @@
-# Miscellaneous bot commands for registering users in the database (/register)
+# Miscellaneous bot commands for registering users in the database (/fzd_set_name)
 # or modifying events (/start_event only for now)
 import logging
 

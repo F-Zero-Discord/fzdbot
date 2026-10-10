@@ -40,12 +40,12 @@ _STATS_FIRST = frozenset({NextStep.ADD, NextStep.EDIT, NextStep.CONFIRM})
 
 def _chosen[T](value: T | None, what: str) -> T:
     if value is None:
-        raise RuntimeError(f"ggp_register: {what} was not chosen before this step")
+        raise RuntimeError(f"register: {what} was not chosen before this step")
     return value
 
 
 class RegSession:
-    """The state of one /ggp_register conversation.
+    """The state of one /register conversation.
 
     A Discord button click is a fresh inbound request, not a reply to the
     coroutine that sent the message, so there is nothing to "wait" for and
@@ -111,12 +111,12 @@ class RegSession:
         exception here to keep asyncio from complaining at GC time.
         """
         if not task.cancelled() and task.exception() is not None:
-            logger.error("ggp_register: prefetch failed", exc_info=task.exception())
+            logger.error("register: prefetch failed", exc_info=task.exception())
 
     async def _load(self) -> None:
         start = time.perf_counter()
         await self._read_registrations()
-        logger.info("ggp_register: initial API call complete in %.4f seconds", time.perf_counter() - start)
+        logger.info("register: initial API call complete in %.4f seconds", time.perf_counter() - start)
 
     async def _read_registrations(self) -> None:
         """The events, their groups and where this player stands, in one call.
@@ -236,12 +236,12 @@ class RegSession:
                     # The exit screen is the wrong place to surface a load
                     # failure: say goodbye plainly instead of claiming anything
                     # about what the user is registered for.
-                    logger.exception("ggp_register: prefetch failed; showing the plain exit screen")
+                    logger.exception("register: prefetch failed; showing the plain exit screen")
                     return ExitView()
                 return ExitView(self.events, self.user)
 
             case _:
-                raise RuntimeError(f"ggp_register: no screen for step {step!r}")
+                raise RuntimeError(f"register: no screen for step {step!r}")
 
     async def expire(self) -> None:
         """A view hit its timeout, so the user walked away.
@@ -254,11 +254,11 @@ class RegSession:
             self._prefetch.cancel()
         try:
             await self.latest.edit_original_response(
-                view=CancelView("Session timed out. Run `/ggp_register` again to pick up where you left off.")
+                view=CancelView("Session timed out. Run `/register` again to pick up where you left off.")
             )
         except discord.HTTPException as error:
             # Token expired or message gone. Nothing left to clean up.
-            logger.warning("ggp_register: could not post the timeout notice: %r", error)
+            logger.warning("register: could not post the timeout notice: %r", error)
 
     #############################################
     # Screen-building helpers
@@ -430,7 +430,7 @@ class EventRegister(commands.Cog):
 
     """ Commands """
 
-    @app_commands.command(name="ggp_register", description="Register for an event")
+    @app_commands.command(name="register", description="Register for an event")
     async def event_register(self, interaction: discord.Interaction):
         """Open the registration flow.
 

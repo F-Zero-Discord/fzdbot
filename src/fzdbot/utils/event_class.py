@@ -57,6 +57,26 @@ class Division(Group):
     pass
 
 
+WAITLIST_DIVISION_NAME = "Waitlist"
+
+
+def without_idle_waitlist(divisions: list[Division]) -> list[Division]:
+    """The divisions a player is offered: the waitlist only once the rest are full.
+
+    The API lists an event's waitlist as one more division, named
+    `WAITLIST_DIVISION_NAME`, beside the ones it waits for. Offered as a
+    peer, it is a choice nobody should make while a real division has room,
+    so it is held back until every other division is at capacity. Dropping
+    it leaves such an event with one division, which the screens treat as
+    no choice to make. Delete this function to offer every division the API
+    lists.
+    """
+    others = [division for division in divisions if division.name != WAITLIST_DIVISION_NAME]
+    if others and not all(division.at_capacity for division in others):
+        return others
+    return divisions
+
+
 class Team(Group):
     pass
 
@@ -127,7 +147,8 @@ class Event:
         if event["group_kind"] == "team":
             self.teams = [_group_from_api(Team, group, scheduled_event_id) for group in event["groups"]]
         else:
-            self.divisions = [_group_from_api(Division, group, scheduled_event_id) for group in event["groups"]]
+            divisions = [_group_from_api(Division, group, scheduled_event_id) for group in event["groups"]]
+            self.divisions = without_idle_waitlist(divisions)
         return self
 
     def div_or_team(self) -> DivTeam:

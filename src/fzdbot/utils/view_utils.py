@@ -8,7 +8,7 @@ class NextStep(StrEnum):
     MENU = "menu"
     ADD = "add"
     EDIT = "edit"
-    # Steps of the /ggp_register flow.
+    # Steps of the /register flow.
     #   STATS           - show the statistics screen
     #   CONTINUE        - statistics done; resume the step that asked for them
     #   COMMIT_ADD      - write the registration, then return to the menu

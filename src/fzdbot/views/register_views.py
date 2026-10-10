@@ -19,8 +19,8 @@ def channel_mention(channel_id: int | None, fallback: str) -> str:
 
 
 WITHDRAW_NOTE = (
-    "NOTE: If you withdraw and this event has a waitlist, your slot will be "
-    "immediately given to someone on the waitlist"
+    "NOTE: If you withdraw when this event is full, and there are people on the "
+    "waitlist, your slot will be given to the next on the waitlist when you withdraw"
 )
 """Shown on every edit screen, whether or not the event has a waitlist: the
 sentence says "if", and which events have one is the API's to know. The API gives
@@ -494,7 +494,7 @@ class ExitView(SessionView):
 
     Terminal in the strict sense: no buttons, no timeout, and the message is
     ephemeral, so there is nothing left for the user to click. Anything the
-    copy tells them to do next has to be `/ggp_register` again.
+    copy tells them to do next has to be `/register` again.
 
     Three shapes, depending on how much the session got to know:
       - nothing loaded, because the user left at the rules screen
@@ -508,7 +508,6 @@ class ExitView(SessionView):
         settings = get_settings()
         self.rules = channel_mention(settings.rules_channel_id, "the rules channel")
         self.help = channel_mention(settings.help_channel_id, "the help channel")
-        self.faq = channel_mention(settings.faq_channel_id, "the FAQ channel")
 
         if user is None:
             self.add_item(self.farewell_container())
@@ -533,7 +532,7 @@ class ExitView(SessionView):
         container.add_item(
             ui.TextDisplay(
                 "### Thanks for stopping by\n"
-                "Run `/ggp_register` whenever you're ready. The door is always open.\n"
+                "Run `/register` whenever you're ready. The door is always open.\n"
                 f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
             )
         )
@@ -544,8 +543,8 @@ class ExitView(SessionView):
         container.add_item(
             ui.TextDisplay(
                 "### Nothing registered. No problem\n"
-                f"You are not signed up for any upcoming events. {self.rules} and {self.faq} are "
-                "a good look at what an event involves, and `/ggp_register` is there whenever "
+                f"You are not signed up for any upcoming events. {self.rules} is "
+                "a good look at what an event involves, and `/register` is there whenever "
                 "you change your mind.\n"
                 f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
             )
@@ -582,18 +581,14 @@ class ExitView(SessionView):
         return text
 
     def next_steps_text(self, summary: list[tuple[Event, DivTeam | None, str | None]]) -> str:
-        text = (
-            "**Before race day**\n"
-            "Read the rules for each event you signed up for. They are in "
-            f"{self.rules}, and {self.faq} covers the questions that come up most."
-        )
+        text = f"**Before race day**\nRead the rules for each event you signed up for. They are in {self.rules}."
 
         if any(div_team_name for _, _, div_team_name in summary):
             # Only worth saying when the user actually picked something that can move.
             text += "\nDivision and team placements are confirmed closer to the event; watch for a ping."
 
         text += (
-            "\n\n**Changed your mind?** Run `/ggp_register` again any time to edit or "
+            "\n\n**Changed your mind?** Run `/register` again any time to edit or "
             "withdraw.\n"
             f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
         )

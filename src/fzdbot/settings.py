@@ -27,9 +27,8 @@ class Settings(BaseSettings):
     error_alert_channel_id: int | None = 1186081056143708250
     # Server channels the registration flow points users at. Optional: the copy
     # falls back to a plain name when an id is not configured.
-    rules_channel_id: int | None = 1216173713012166797
-    help_channel_id: int | None = 1216179321497063444
-    faq_channel_id: int | None = 1216189837502316565
+    rules_channel_id: int | None = 1400989022603448440  # supernova-2-rules
+    help_channel_id: int | None = 1401686238737596506  # nova-2-help
     # Which Discord role each GGP8 event grants its registrants: a
     # `scheduled_event_id` to a role id, as JSON. Empty leaves the sync off, and
     # an event absent from it is never touched.
@@ -54,7 +53,6 @@ class Settings(BaseSettings):
         "error_alert_channel_id",
         "rules_channel_id",
         "help_channel_id",
-        "faq_channel_id",
         mode="before",
     )
     @classmethod
