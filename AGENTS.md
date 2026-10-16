@@ -219,6 +219,11 @@ application needs it granted in its portal or the bot stops at startup, and the
 test bot's own role has to sit above the roles the map names or every add is
 refused with a 403.
 
+`/submit` draws each slot with its prix emoji, looked up **by name** in the
+guild the command runs in (`lineup_emoji.py`), so the test guild carries copies
+of FZD's prix emoji under the same names; a guild without a copy draws the slot
+without an icon.
+
 `FZD_API_BASE_URL` and `FZD_API_KEY` are **required and have no defaults**, so a
 run that forgets them stops at startup rather than failing the API commands one at a
 time. `DB_NAME` moves with them: `/fzd_start_event` and `/fzd_events_schedule`

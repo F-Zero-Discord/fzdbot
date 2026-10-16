@@ -10,7 +10,8 @@ from fzdbot.api_types import (
     SlotResultResponse,
 )
 from fzdbot.cogs.ggp_submissions import active_slot, result_lines, standing_footer
-from fzdbot.cogs.submissions import format_time, parse_score, parse_time
+from fzdbot.cogs.submissions import parse_score, parse_time
+from fzdbot.scoreboards import format_time
 
 
 @pytest.mark.parametrize("text", ["1:30.44", "1.30.44", "1 30 44", "01:30:44", " 1:30.44 "])

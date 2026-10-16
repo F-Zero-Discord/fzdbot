@@ -43,8 +43,7 @@ class Settings(BaseSettings):
     # Appends each player's submission count and per-slot results to their line.
     debug_scoreboard: bool = False
     # Whether the sentence confirming a result write (`/submit`,
-    # `/submit_score`, `/submit_time`, `/edit_score`, `/edit_time`,
-    # `/delete_submission`) is shown only to the player.
+    # `/submit_inline`, `/delete_submission`) is shown only to the player.
     # False posts it in the channel the command was run in, so a lobby sees
     # what was set. Refusals are ephemeral either way.
     submission_confirmation_ephemeral: bool = False

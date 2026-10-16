@@ -1,16 +1,15 @@
-"""`/edit_score`, `/edit_time` and `/delete_submission`: a player's result
-on one slot of a running event.
+"""`/delete_submission`, and what every command that names a slot or a
+machine shares: the parsers, the slot picker, the machine picker, and the
+refusal and confirmation sentences.
 
 A result is set, never added: submitting to a slot again replaces what it held,
 and `/delete_submission` returns the slot to nothing submitted. The slot picker
 spans every event running now, so a GGP weekend with two events on at once is
 one list, and offers only the slots that have started: the one running now and
-the ones before it, not the ones still to come. The interaction carries the
-event id and the slot id and nothing else; which events are open and whether
-the slot takes a score or a time are the API's rules, and its refusal is the
-sentence the user reads. So is whether the write needs a machine: both
-writes send the one named, or none, and the API refuses a write without one
-on an event that records it.
+the ones before it, not the ones still to come. A choice carries the event id
+and the slot id and nothing else; which events are open and whether the slot
+takes a score or a time are the API's rules, and its refusal is the sentence
+the user reads.
 """
 
 import asyncio
@@ -25,7 +24,7 @@ from discord.ext import commands
 from fzdbot.api_types import MachineResponse, SlotResponse
 from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
-from fzdbot.scoreboards import event_label, format_time, slot_name, vote_winner
+from fzdbot.scoreboards import event_label, slot_name, vote_winner
 from fzdbot.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -161,81 +160,78 @@ async def slot_ids(interaction: discord.Interaction, slot: str) -> tuple[int, in
     return None
 
 
+async def slot_choices(api: FzdApi, discord_user_id: int, current: str) -> list[app_commands.Choice[str]]:
+    """Every started slot of every event running now, the one raced most
+    recently first; a slot still to come is left out. One placeholder when
+    there is nothing to pick: no event, an event whose schedule has not
+    been entered, or one whose first slot has not started.
+    """
+    try:
+        events = await api.active_events()
+        schedules = await asyncio.gather(*(api.schedule(e["scheduled_event_id"]) for e in events))
+    except FzdApiError as error:
+        logger.warning("[submissions] slot autocomplete could not read the API: %s", error)
+        return []
+
+    if not events:
+        return [app_commands.Choice(name="No event is running right now", value=NO_EVENT)]
+
+    if not any(schedules):
+        return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
+
+    now = datetime.now(UTC)
+    slots = sorted(
+        (
+            (event, slot)
+            for event, schedule in zip(events, schedules, strict=False)
+            for slot in schedule
+            if not upcoming(slot, now)
+        ),
+        key=lambda pair: recency(pair[1], now),
+    )
+    if not slots:
+        return [app_commands.Choice(name="The first slot has not started yet", value=NO_SLOT_STARTED)]
+
+    groups = await _groups(api, discord_user_id, schedules, now)
+    needle = current.casefold()
+    named = [(choice_name(slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots]
+    choices = [
+        app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
+        for name, event, slot in named
+        if needle in name.casefold()
+    ]
+    return choices[:MAX_CHOICES]
+
+
+async def _groups(
+    api: FzdApi, discord_user_id: int, schedules: list[list[SlotResponse]], now: datetime
+) -> dict[int, int]:
+    """The group this player holds in each event, by event id. Read only
+    when some slot holds a division's vote, which is the one thing here
+    that depends on who is asking; a failed read shows the slots unlabelled.
+    """
+    votes = (vote for schedule in schedules for slot in schedule for vote in slot["vote_winners"])
+    if all(vote["division_id"] is None for vote in votes):
+        return {}
+    try:
+        registrations = await api.registrations(discord_user_id, now)
+    except FzdApiError as error:
+        logger.warning("[submissions] slot autocomplete could not read registrations: %s", error)
+        return {}
+    return {
+        event["scheduled_event_id"]: event["your_registration"]["group_id"]
+        for event in registrations
+        if event["your_registration"]
+    }
+
+
 class Submissions(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
         self.confirm_ephemeral = get_settings().submission_confirmation_ephemeral
 
     async def slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        """Every started slot of every event running now, the one raced most
-        recently first; a slot still to come is left out. One placeholder when
-        there is nothing to pick: no event, an event whose schedule has not
-        been entered, or one whose first slot has not started.
-        """
-        try:
-            events = await self.bot.api.active_events()
-            schedules = await asyncio.gather(*(self.bot.api.schedule(e["scheduled_event_id"]) for e in events))
-        except FzdApiError as error:
-            logger.warning("[submissions] slot autocomplete could not read the API: %s", error)
-            return []
-
-        if not events:
-            return [app_commands.Choice(name="No event is running right now", value=NO_EVENT)]
-
-        if not any(schedules):
-            return [app_commands.Choice(name="The running event has no schedule entered", value=NO_SCHEDULE)]
-
-        now = datetime.now(UTC)
-        slots = sorted(
-            (
-                (event, slot)
-                for event, schedule in zip(events, schedules, strict=False)
-                for slot in schedule
-                if not upcoming(slot, now)
-            ),
-            key=lambda pair: recency(pair[1], now),
-        )
-        if not slots:
-            return [app_commands.Choice(name="The first slot has not started yet", value=NO_SLOT_STARTED)]
-
-        groups = await self._groups(interaction.user.id, schedules, now)
-        needle = current.casefold()
-        named = [(choice_name(slot, groups.get(event["scheduled_event_id"])), event, slot) for event, slot in slots]
-        choices = [
-            app_commands.Choice(name=name, value=f"{event['scheduled_event_id']}:{slot['slot_id']}")
-            for name, event, slot in named
-            if needle in name.casefold()
-        ]
-        return choices[:MAX_CHOICES]
-
-    async def _groups(self, discord_user_id: int, schedules: list[list[SlotResponse]], now: datetime) -> dict[int, int]:
-        """The group this player holds in each event, by event id. Read only
-        when some slot holds a division's vote, which is the one thing here
-        that depends on who is asking; a failed read shows the slots unlabelled.
-        """
-        votes = (vote for schedule in schedules for slot in schedule for vote in slot["vote_winners"])
-        if all(vote["division_id"] is None for vote in votes):
-            return {}
-        try:
-            registrations = await self.bot.api.registrations(discord_user_id, now)
-        except FzdApiError as error:
-            logger.warning("[submissions] slot autocomplete could not read registrations: %s", error)
-            return {}
-        return {
-            event["scheduled_event_id"]: event["your_registration"]["group_id"]
-            for event in registrations
-            if event["your_registration"]
-        }
-
-    async def machine_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        return await machine_choices(self.bot.api, current)
-
-    async def _machine_id(self, machine: str | None) -> int | None:
-        if machine is None:
-            return None
-        return machine_named(await self.bot.api.machines(), machine)["machine_id"]
+        return await slot_choices(self.bot.api, interaction.user.id, current)
 
     async def _describe(self, scheduled_event_id: int, slot_id: int) -> str:
         """`2026-09-23 | Wacky Wednesday #1 Knight`: the event and the slot as a
@@ -264,107 +260,6 @@ class Submissions(commands.Cog):
             ephemeral=self.confirm_ephemeral,
         )
 
-    @app_commands.command(name="edit_score", description="Set your score for a slot that has started")
-    @app_commands.describe(
-        slot="Which slot the score is for",
-        score="Your points, or dnf",
-        machine=MACHINE_OPTION,
-    )
-    async def edit_score(
-        self, interaction: discord.Interaction, slot: str, score: str, machine: str | None = None
-    ) -> None:
-        try:
-            points = parse_score(score)
-        except ValueError:
-            await refuse(interaction, f"Enter your score as a whole number, like 87, or `{DNF}`.")
-            return
-        ids = await slot_ids(interaction, slot)
-        if ids is None:
-            return
-        scheduled_event_id, slot_id = ids
-        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
-
-        try:
-            machine_id = await self._machine_id(machine)
-            await self.bot.api.set_score(
-                interaction.user.id,
-                interaction.user.name,
-                scheduled_event_id,
-                slot_id,
-                points,
-                machine_id,
-                datetime.now(UTC),
-            )
-        except ValueError:
-            await refuse(interaction, "Pick a machine from the list.")
-            return
-        except FzdApiError as error:
-            logger.warning("[submissions] set_score refused for user=%s: %s", interaction.user, error)
-            await refuse(interaction, error.refusal())
-            return
-
-        did = "set DNF" if points is None else f"set a score of {points}"
-        await self._confirm(interaction, scheduled_event_id, slot_id, did)
-        logger.info(
-            "[submissions] user=%s event=%s slot=%s score=%s",
-            interaction.user,
-            scheduled_event_id,
-            slot_id,
-            points,
-        )
-
-    @app_commands.command(name="edit_time", description="Set your time for a slot that has started")
-    @app_commands.describe(
-        slot="Which slot the time is for",
-        time=f"Minutes, seconds and centiseconds, like {TIME_EXAMPLE}, or dnf",
-        machine=MACHINE_OPTION,
-    )
-    async def edit_time(
-        self, interaction: discord.Interaction, slot: str, time: str, machine: str | None = None
-    ) -> None:
-        try:
-            time_cs = parse_time(time)
-        except ValueError:
-            await refuse(
-                interaction,
-                f"Enter your time as minutes, seconds and centiseconds, like `{TIME_EXAMPLE}`, or `{DNF}`.",
-            )
-            return
-        ids = await slot_ids(interaction, slot)
-        if ids is None:
-            return
-        scheduled_event_id, slot_id = ids
-        await interaction.response.defer(ephemeral=self.confirm_ephemeral)
-
-        try:
-            machine_id = await self._machine_id(machine)
-            await self.bot.api.set_time(
-                interaction.user.id,
-                interaction.user.name,
-                scheduled_event_id,
-                slot_id,
-                time_cs,
-                machine_id,
-                datetime.now(UTC),
-            )
-        except ValueError:
-            await refuse(interaction, "Pick a machine from the list.")
-            return
-        except FzdApiError as error:
-            logger.warning("[submissions] set_time refused for user=%s: %s", interaction.user, error)
-            await refuse(interaction, error.refusal())
-            return
-
-        did = "set DNF" if time_cs is None else f"set a time of {format_time(time_cs)}"
-        await self._confirm(interaction, scheduled_event_id, slot_id, did)
-        logger.info(
-            "[submissions] user=%s event=%s slot=%s time_cs=%s",
-            interaction.user,
-            scheduled_event_id,
-            slot_id,
-            time_cs,
-        )
-
     @app_commands.command(name="delete_submission", description="Remove your result from a slot of the running event")
     @app_commands.describe(slot="Which slot to clear")
     async def delete_submission(self, interaction: discord.Interaction, slot: str) -> None:
@@ -385,10 +280,7 @@ class Submissions(commands.Cog):
         logger.info("[submissions] user=%s event=%s slot=%s removed", interaction.user, scheduled_event_id, slot_id)
 
     async def cog_load(self) -> None:
-        for command in (self.edit_score, self.edit_time, self.delete_submission):
-            command.autocomplete("slot")(self.slot_autocomplete)
-        for command in (self.edit_score, self.edit_time):
-            command.autocomplete("machine")(self.machine_autocomplete)
+        self.delete_submission.autocomplete("slot")(self.slot_autocomplete)
 
 
 async def setup(bot: FZDBot) -> None:
