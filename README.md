@@ -1,14 +1,26 @@
 # fzdbot
 
-A discord bot that connects to the F-Zero Discord (FZD) database, with MySQL support. It functions as an interface between discord and the database, useful for event scoreboards and statistics gathering from events.
+The F-Zero Discord (FZD) community's Discord bot: event registration, result submission and live scoreboards. It reads and writes FZD's data through the FZD API.
 
 ---
 
 ## Features
 
-* Slash commands with dynamic autocomplete
-* Score tracking in a MySQL database
-* Configurable via `.env` file
+* `/register` for events, with divisions, teams and a waitlist
+* `/submit` and `/submit_inline` for results, scored by points or by time
+* Live scoreboards that keep themselves up to date during an event
+* Slash commands with autocomplete, configured through a `.env` file
+
+## Documentation
+
+| Page | What's in it |
+|---|---|
+| [docs/setup.md](docs/setup.md) | Installing, every setting, running locally and against stage |
+| [docs/structure.md](docs/structure.md) | What lives where |
+| [docs/internals.md](docs/internals.md) | Startup, commands, the API client, errors, background loops |
+| [docs/commands.md](docs/commands.md) | Every command: handler, arguments, who may run it, what it reads and writes |
+| [docs/how-to.md](docs/how-to.md) | Adding a command, regenerating the API types, removing a command |
+| [AGENTS.md](AGENTS.md) | The design rules, and the details of running against stage |
 
 ---
 
@@ -57,37 +69,7 @@ source venv/bin/activate
 The `.env.example` file shows how your .env file should be structured. Copy the contents to `.env` and populate the
 variables. This file will not be uploaded to the git repo
 
-### Settings behavior (required vs defaulted vs empty)
-
-`src/fzdbot/settings.py` loads values from `.env` into strongly typed settings.
-
-Required settings (no default in code):
-
-* `DISCORD_TOKEN`
-* `SERVER_ID`
-* `DB_USER`
-* `DB_PASSWORD`
-* `DB_NAME`
-* `FZD_API_BASE_URL`
-* `FZD_API_KEY`
-
-Defaulted settings (used automatically if missing from `.env`):
-
-* `DB_HOST` defaults to `localhost`
-* `DB_PORT` defaults to `3306`
-* `LOG_LEVEL` defaults to `INFO`
-* `ERROR_ALERT_CHANNEL_ID` defaults to FZD's alert channel; set it empty to disable Discord error alerts
-* `SCOREBOARD_DISPLAY_PODIUM` defaults to `false`
-* `SCOREBOARD_LINES_PER_BLOCK` defaults to `8`
-* `SCOREBOARD_REFRESH_SECONDS` defaults to `10`: how often a live board set up by `/setup_scoreboard` is re-read and, when its standings changed, edited
-* `SUBMISSION_CONFIRMATION_EPHEMERAL` defaults to `false`: `true` shows the sentence confirming a submitted, edited or deleted result only to the player instead of posting it in the channel
-
-What happens when values are missing or empty:
-
-* Missing required setting: bot startup fails with a settings validation error.
-* Missing defaulted setting: code uses the default value above.
-* Empty value for typed settings like `int`/`bool`: startup fails with a validation error.
-* Empty value for required strings: validation passes, but runtime behavior will likely fail later (for example DB auth).
+Every setting, its default, and what happens when one is missing are in [docs/setup.md](docs/setup.md#configure).
 
 ## Day-to-Day Workflow
 
