@@ -10,7 +10,6 @@ from fzdbot.api_types import (
     EventDetailResponse,
     EventResponse,
     EventTypeResponse,
-    Ggp8RegistrationResponse,
     LiveScoreboardResponse,
     MachineResponse,
     PlayerResultResponse,
@@ -21,6 +20,8 @@ from fzdbot.api_types import (
     ScoreResultResponse,
     SlotResponse,
     TimeResultResponse,
+    TournamentRegistrantResponse,
+    TournamentResponse,
     TournamentSummaryResponse,
     TrackResponse,
 )
@@ -326,17 +327,27 @@ class FzdApi:
         """
         return await self._request("GET", "/v1/ggp8/events")
 
-    async def ggp8_registrations(self) -> list[Ggp8RegistrationResponse]:
-        """Everybody currently registered for a GGP8 event, one row per player
-        per event, each with their division or team and their Discord id.
-        """
-        return await self._request("GET", "/v1/ggp8/registrations")
-
     async def tournaments(self, now: datetime) -> list[TournamentSummaryResponse]:
         """Every tournament published at `now`, with its name and its rules and
         help channels. An event row's `tournament` is the slug of one of these.
         """
         return await self._request("GET", f"/v1/tournaments?now={_instant(now)}")
+
+    async def tournament(self, slug: str, now: datetime) -> TournamentResponse:
+        """One tournament: where it stands at `now`, its events still on the
+        calendar, and per event every group with its capacity, headcount, the
+        role it grants and the waitlist mark. 404 for a slug not published at
+        `now`.
+        """
+        return await self._request("GET", f"/v1/tournaments/{slug}?now={_instant(now)}")
+
+    async def tournament_registrants(self, slug: str) -> list[TournamentRegistrantResponse]:
+        """Everybody currently registered for one of the tournament's events,
+        one row per player per event, with the group held, the role it grants
+        and whether the group is the waitlist. No clock: a membership is
+        current because its row exists.
+        """
+        return await self._request("GET", f"/v1/tournaments/{slug}/registrants")
 
     async def live_scoreboards(self) -> list[LiveScoreboardResponse]:
         """Every message registered as a live board: `message_id` and

@@ -147,12 +147,15 @@ pool, `execute_query`, and their three queries. No SQL in this repo names
 `users`, `event_result_points`, `user_divisions`, `user_teams`,
 `event_registration_log`, `user_stats`, `divisions` or `teams`.
 
-**The event role sync needs two grants that cannot be made in this repo.** The
-**members intent**, privileged and enabled in the application's developer
-portal: `main.py` asks for it only where `GGP8_EVENT_ROLES` or
-`GGP8_DIVISION_ROLES` is not empty,
-because asking for an intent the portal has not granted stops the bot at
-startup, so the map and the portal are configured together or the deployment
+**The event role sync hands out each group's own `role_id`**, as the tournament
+read answers it, to the group's registrants holding a place; nothing in this
+repo names a role, an event or a tournament, so a new tournament's roles are
+set on its rows and the bot is not restarted. A tournament staff have closed
+has its roles withdrawn by the same loop. The sync always runs, and **needs two
+grants that cannot be made in this repo.** The **members intent**, privileged
+and enabled in the application's developer portal: `main.py` asks for it
+unconditionally, and asking for an intent the portal has not granted stops the
+bot at startup, so an application gets the intent before it runs this bot or
 comes up dead. And **fzdbot's own role above the roles it hands out**, without
 which every add is refused — a member holding a role above the bot's is refused
 individually, staff who register are exactly that member, and the pass carries
@@ -209,15 +212,16 @@ DB_PASSWORD=...
 DB_NAME=fzd_stage
 FZD_API_BASE_URL=https://api-stage.fzd.gg
 FZD_API_KEY=...                   # ssh fzd 'sudo cat /etc/fzd-api/issued/stage-fzdbot.key'
-GGP8_EVENT_ROLES={"738": ...}     # stage's event ids to roles made in the test guild;
-                                  # omit it to leave the role sync off
 EVENT_ROLE_SYNC_SECONDS=60        # 300 in the deployment; 60 while watching it work
 ```
 
-A run with either role map set asks for the members intent, so the *test*
-application needs it granted in its portal or the bot stops at startup, and the
-test bot's own role has to sit above the roles the map names or every add is
-refused with a 403.
+The role sync always runs, so the *test* application needs the members intent
+granted in its portal or the bot stops at startup. The roles it hands out are
+the `role_id`s on stage's groups, which have to be roles of the test guild
+sitting below the test bot's own role, or every add is refused with a 403. A
+rebuild of stage from prod puts FZD's role ids back on them, and the sync then
+warns once per role per tick that the guild does not have it and changes
+nothing.
 
 `/submit` draws each slot with its prix emoji, looked up **by name** in the
 guild the command runs in (`lineup_emoji.py`), so the test guild carries copies

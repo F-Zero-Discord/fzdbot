@@ -25,13 +25,6 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     error_alert_channel_id: int | None = 1186081056143708250
-    # Which Discord role each GGP8 event grants its registrants: a
-    # `scheduled_event_id` to a role id, as JSON. Empty leaves the sync off, and
-    # an event absent from it is never touched.
-    ggp8_event_roles: dict[int, int] = {}
-    # The same for a division of a GGP8 event: a `divisions` id to a role id,
-    # granted to the division's members on top of the event's own role.
-    ggp8_division_roles: dict[int, int] = {}
     event_role_sync_seconds: int = 300
     scoreboard_display_podium: bool = True
     scoreboard_lines_per_block: int = 8

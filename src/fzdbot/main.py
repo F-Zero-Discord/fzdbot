@@ -123,10 +123,10 @@ def main() -> None:
     intents.guilds = True
     intents.messages = True
     # The event-role sync reads who holds a role, which is the guild's member
-    # list. That intent is privileged: asking for one the application's portal
-    # has not granted stops the bot at startup, so it is asked for only where a
-    # role is configured to sync.
-    intents.members = bool(settings.ggp8_event_roles or settings.ggp8_division_roles)
+    # list. That intent is privileged: the application's developer portal has to
+    # grant it, and asking for one it has not stops the bot at startup, which is
+    # the legible version of a sync that sees every role as empty.
+    intents.members = True
 
     client = FZDBot(command_prefix="!", intents=intents)
     client.run(token=settings.discord_token)
