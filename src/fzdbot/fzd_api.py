@@ -321,12 +321,6 @@ class FzdApi:
             },
         )
 
-    async def ggp8_events(self) -> list[EventResponse]:
-        """The scheduled events that are GGP8's, earliest first. Which ones is
-        the API's configuration; nothing here holds an event id.
-        """
-        return await self._request("GET", "/v1/ggp8/events")
-
     async def tournaments(self, now: datetime) -> list[TournamentSummaryResponse]:
         """Every tournament published at `now`, with its name and its rules and
         help channels. An event row's `tournament` is the slug of one of these.

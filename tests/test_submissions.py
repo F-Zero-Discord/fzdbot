@@ -9,8 +9,8 @@ from fzdbot.api_types import (
     SlotResponse,
     SlotResultResponse,
 )
-from fzdbot.cogs.ggp_submissions import active_slot, result_lines, standing_footer
 from fzdbot.cogs.submissions import parse_score, parse_time
+from fzdbot.cogs.submit import active_slot, result_lines, standing_footer
 from fzdbot.scoreboards import format_time
 
 

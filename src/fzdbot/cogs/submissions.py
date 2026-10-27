@@ -4,7 +4,7 @@ refusal and confirmation sentences.
 
 A result is set, never added: submitting to a slot again replaces what it held,
 and `/delete_submission` returns the slot to nothing submitted. The slot picker
-spans every event running now, so a GGP weekend with two events on at once is
+spans every event running now, so a tournament weekend with two events on at once is
 one list, and offers only the slots that have started: the one running now and
 the ones before it, not the ones still to come. A choice carries the event id
 and the slot id and nothing else; which events are open and whether the slot

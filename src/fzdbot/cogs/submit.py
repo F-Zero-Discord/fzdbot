@@ -8,8 +8,8 @@ the board makes of it, read from the API's own standing for the player:
 the multiplier applied, the loss to the leader and the cap on a time event,
 and which results the mulligans dropped. Nothing here scores a result.
 
-Nothing here asks whether an event is GGP8's: a weekly is taken the same
-way, so the commands can be tried on one. The player types a value and, where
+Nothing here asks which tournament an event belongs to, or whether it is in
+one: a weekly is taken the same way, so the commands can be tried on one. The player types a value and, where
 the event records it, picks a machine, and nothing else: which event and which
 slot are read from the clock at the write, so there is no list of slots to read. The
 running event is the one whose window holds now, and the active slot the one
@@ -305,7 +305,7 @@ class SubmitModal(discord.ui.Modal):
 
     def __init__(
         self,
-        cog: "GgpSubmissions",
+        cog: "Submit",
         guild: discord.Guild,
         event: EventResponse,
         schedule: list[SlotResponse],
@@ -388,7 +388,7 @@ class SubmitModal(discord.ui.Modal):
         )
 
 
-class GgpSubmissions(commands.Cog):
+class Submit(commands.Cog):
     def __init__(self, bot: FZDBot):
         self.bot = bot
         self.confirm_ephemeral = get_settings().submission_confirmation_ephemeral
@@ -467,7 +467,7 @@ class GgpSubmissions(commands.Cog):
             )
             results = await self.bot.api.player_results(interaction.user.id, event["scheduled_event_id"])
         except FzdApiError as error:
-            logger.warning("[ggp_submissions] %s refused for user=%s: %s", method, interaction.user, error)
+            logger.warning("[submit] %s refused for user=%s: %s", method, interaction.user, error)
             await refuse(interaction, error.refusal())
             return
 
@@ -481,7 +481,7 @@ class GgpSubmissions(commands.Cog):
         lines += ["", summary_block(interaction.guild, method, event, schedule, results, now)]
         await interaction.followup.send("\n".join(lines), ephemeral=self.confirm_ephemeral)
         logger.info(
-            "[ggp_submissions] user=%s event=%s slot=%s %s=%s",
+            "[submit] user=%s event=%s slot=%s %s=%s",
             interaction.user,
             event["scheduled_event_id"],
             slot["slot_id"],
@@ -535,7 +535,7 @@ class GgpSubmissions(commands.Cog):
             await refuse(interaction, "Pick a machine from the list.")
             return
         except FzdApiError as error:
-            logger.warning("[ggp_submissions] inline could not read the API for user=%s: %s", interaction.user, error)
+            logger.warning("[submit] inline could not read the API for user=%s: %s", interaction.user, error)
             await refuse(interaction, error.refusal())
             return
         event, schedule, picked = active
@@ -562,7 +562,7 @@ class GgpSubmissions(commands.Cog):
             results = await self.bot.api.player_results(interaction.user.id, event["scheduled_event_id"])
             machines = await self.bot.api.machines() if event["machine_input_required"] else []
         except FzdApiError as error:
-            logger.warning("[ggp_submissions] modal could not read the API for user=%s: %s", interaction.user, error)
+            logger.warning("[submit] modal could not read the API for user=%s: %s", interaction.user, error)
             await refuse(interaction, error.refusal())
             return
         assert interaction.guild is not None  # the command is registered to one guild
@@ -582,7 +582,7 @@ class GgpSubmissions(commands.Cog):
                 self.bot.api.player_standing(interaction.user.id, chosen["scheduled_event_id"]),
             )
         except FzdApiError as error:
-            logger.warning("[ggp_submissions] show could not read the API for user=%s: %s", interaction.user, error)
+            logger.warning("[submit] show could not read the API for user=%s: %s", interaction.user, error)
             await interaction.followup.send(error.refusal(), ephemeral=True)
             return
 
@@ -610,4 +610,4 @@ class GgpSubmissions(commands.Cog):
 
 
 async def setup(bot: FZDBot) -> None:
-    await bot.add_cog(GgpSubmissions(bot), guild=discord.Object(id=get_settings().server_id))
+    await bot.add_cog(Submit(bot), guild=discord.Object(id=get_settings().server_id))
