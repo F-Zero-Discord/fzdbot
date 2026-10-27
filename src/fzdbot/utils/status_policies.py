@@ -81,8 +81,9 @@ def user_event_status(event: Event, user: UserRegistrations) -> EventStatus:
         }
         return status
 
-    # Remaining case: user not registered, registration period has not closed, but event is full
-    #   Note: to be modified if waitlist implemented
+    # Remaining case: user not registered, registration period has not closed, but event is full.
+    # An event with a waitlist does not land here: the API lists the queue,
+    # uncapped, exactly when the other groups are full, so the event has room.
     return {
         "label": "Event Full!",
         "button_label": "-----",

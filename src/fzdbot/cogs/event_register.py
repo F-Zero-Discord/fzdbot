@@ -305,8 +305,9 @@ class RegSession:
         that fills a moment later does not make it wrong.
 
         There is no capacity check here. The API counts inside the write and
-        answers 409 when the group is full, which is the only answer that
-        cannot already be stale by the time it is read.
+        answers 409 when the group is full, or when the waitlist is picked
+        while a group has room, which is the only answer that cannot already
+        be stale by the time it is read. Its sentence is the notice.
         """
         await self._ack(interaction)
         group_id = _chosen(self.new_div_team_id, "a group")
@@ -335,16 +336,17 @@ class RegSession:
             if error.status != 409:
                 raise
             self.notice = (
-                f"**{self._div_team_name(group_id)}** filled up while you "
-                f"were choosing, so nothing was registered. "
-                f"Pick another {self.div_team_str}."
+                f"**{self._div_team_name(group_id)}** was refused while you "
+                f"were choosing, so nothing was registered: {error.refusal()}. "
+                f"Pick again."
             )
             logger.info(
-                "%s not added to %s: %s %s is full",
+                "%s not added to %s, %s %s: %s",
                 interaction.user.name,
                 self.event.event_name,
                 self.div_team_str,
                 group_id,
+                error.refusal(),
             )
             await self._read_registrations()
             return

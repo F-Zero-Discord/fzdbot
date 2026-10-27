@@ -269,7 +269,9 @@ class FzdApi:
         now: datetime,
     ) -> RegistrationEventResponse:
         """Join `group_id`, or move to it from another group of the same event.
-        409 means the group filled up; the caller re-reads and says so.
+        409 is a refusal with its reason in `detail`: the group filled up, or
+        the waitlist takes nobody while a group has room. The caller re-reads
+        and shows the sentence.
         """
         return await self._request(
             "PUT",

@@ -52,6 +52,9 @@ class Group:
     capacity: int | None
     num_registered: int
     emote: str | None
+    waitlist: bool
+    """A queue for a place in the event rather than a place. The API lists it
+    only while every other group is full, or while this player is in it."""
 
     @property
     def at_capacity(self) -> bool:
@@ -60,26 +63,6 @@ class Group:
 
 class Division(Group):
     pass
-
-
-WAITLIST_DIVISION_NAME = "Waitlist"
-
-
-def without_idle_waitlist(divisions: list[Division]) -> list[Division]:
-    """The divisions a player is offered: the waitlist only once the rest are full.
-
-    The API lists an event's waitlist as one more division, named
-    `WAITLIST_DIVISION_NAME`, beside the ones it waits for. Offered as a
-    peer, it is a choice nobody should make while a real division has room,
-    so it is held back until every other division is at capacity. Dropping
-    it leaves such an event with one division, which the screens treat as
-    no choice to make. Delete this function to offer every division the API
-    lists.
-    """
-    others = [division for division in divisions if division.name != WAITLIST_DIVISION_NAME]
-    if others and not all(division.at_capacity for division in others):
-        return others
-    return divisions
 
 
 class Team(Group):
@@ -95,6 +78,7 @@ def _group_from_api[G: Group](cls: type[G], group: RegistrationGroupResponse, sc
         capacity=group["capacity"],
         num_registered=group["registered"],
         emote=group["emote"],
+        waitlist=group["waitlist"],
     )
 
 
@@ -128,9 +112,15 @@ class Event:
         return all(group.at_capacity for group in groups)
 
     @property
+    def waitlist(self) -> Division | None:
+        """The event's queue, when the API lists it."""
+        return next((division for division in self.divisions if division.waitlist), None)
+
+    @property
     def has_solo_division(self) -> bool:
         """A single division is a registration with no choice to make: the
-        screens skip the picker and name no division.
+        screens skip the picker and name no division. An event whose one
+        division is full lists its waitlist beside it, and that is a choice.
         """
         if self.divisions and self.teams:
             raise ValueError("An event can have teams or divisions, but not both.")
@@ -157,8 +147,7 @@ class Event:
         if event["group_kind"] == "team":
             self.teams = [_group_from_api(Team, group, scheduled_event_id) for group in event["groups"]]
         else:
-            divisions = [_group_from_api(Division, group, scheduled_event_id) for group in event["groups"]]
-            self.divisions = without_idle_waitlist(divisions)
+            self.divisions = [_group_from_api(Division, group, scheduled_event_id) for group in event["groups"]]
         return self
 
     def div_or_team(self) -> DivTeam:

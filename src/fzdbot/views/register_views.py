@@ -16,12 +16,23 @@ sentence says "if", and which events have one is the API's to know. The API give
 the place away inside the transaction that frees it, so the warning is literal."""
 
 
-def room_left(div_team: Division | Team) -> str:
-    """What the status line says about a division or team that has room in it.
+WAITLIST_OPTION_DESCRIPTION = "A queue for a place, not a place"
 
-    A division whose capacity is NULL is not capped, and there is no number of
-    spots to count down for one.
+
+def status_line(event: Event, div_team: Division | Team) -> str:
+    """What the status line says about the division or team the dropdown sits on.
+
+    A full group names the waitlist when there is one to name: the API lists
+    it exactly when every other group is full. A division whose capacity is
+    NULL is not capped, and there is no number of spots to count down for one.
     """
+    kind = event.div_or_team().capitalize()
+    if div_team.at_capacity:
+        if event.waitlist is None:
+            return f"{kind} {div_team.name} full!"
+        return f"{kind} {div_team.name} full! Pick {event.waitlist.name} to queue for a place."
+    if div_team.waitlist:
+        return f"Waitlist - {div_team.num_registered} waiting. A place is offered when one frees up."
     if div_team.capacity is None:
         return f"Open - {div_team.num_registered} registered"
     return f"{div_team.capacity - div_team.num_registered} spots available!"
@@ -199,7 +210,10 @@ class DivTeamAddView(SessionView):
 
             options = []
             for div_team in div_team_list:
-                options.append(discord.SelectOption(label=div_team.name, description=None, value=str(div_team.id)))
+                description = WAITLIST_OPTION_DESCRIPTION if div_team.waitlist else None
+                options.append(
+                    discord.SelectOption(label=div_team.name, description=description, value=str(div_team.id))
+                )
             super().__init__(options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -234,14 +248,9 @@ class DivTeamAddView(SessionView):
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {self.div_team_string}")
 
-        # Set statuses
-        if div_team.at_capacity:
-            self.continue_button.disabled = True
-            print(f"{self.div_team_string.capitalize()} {div_team.name} full!")
-            self.status_text.content = f"{self.div_team_string.capitalize()} {div_team.name} full!"
-        else:
-            self.continue_button.disabled = False
-            self.status_text.content = room_left(div_team)
+        self.status_text.content = status_line(self.event, div_team)
+        self.continue_button.disabled = div_team.at_capacity
+        if not div_team.at_capacity:
             self.continue_button.selection_id = self.choice
 
     def apply_choice(self, session) -> None:
@@ -321,7 +330,8 @@ class DivTeamEditView(SessionView):
                     label = f"{div_team.name} (current)"
                 else:
                     label = f"{div_team.name}"
-                options.append(discord.SelectOption(label=label, description=None, value=str(div_team.id)))
+                description = WAITLIST_OPTION_DESCRIPTION if div_team.waitlist else None
+                options.append(discord.SelectOption(label=label, description=description, value=str(div_team.id)))
             super().__init__(options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -356,14 +366,9 @@ class DivTeamEditView(SessionView):
             case _:
                 raise ValueError(f"Self.div_team must be 'division' or 'team', not {self.div_team_string}")
 
-        # Set statuses
-        if div_team.at_capacity:
-            self.edit_button.disabled = True
-            print(f"{self.div_team_string.capitalize()} {div_team.name} full!")
-            self.status_text.content = f"{self.div_team_string.capitalize()} {div_team.name} full!"
-        else:
-            self.edit_button.disabled = False
-            self.status_text.content = room_left(div_team)
+        self.status_text.content = status_line(self.event, div_team)
+        self.edit_button.disabled = div_team.at_capacity
+        if not div_team.at_capacity:
             self.edit_button.selection_id = self.choice
 
         if self.choice == self.existing_div_team_id:
