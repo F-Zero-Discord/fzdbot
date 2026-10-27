@@ -1,7 +1,7 @@
 import discord
 from discord import ui
 
-from fzdbot.api_types import Ggp8StatOption
+from fzdbot.api_types import StatOptionResponse
 from fzdbot.utils.event_class import UserStats
 from fzdbot.utils.view_utils import NextStep
 from fzdbot.views.common import GenericButton, SessionView
@@ -10,8 +10,8 @@ from fzdbot.views.common import GenericButton, SessionView
 class BasicStatsView(SessionView):
     def __init__(
         self,
-        recent_dict: list[Ggp8StatOption],
-        self_eval_dict: list[Ggp8StatOption],
+        recent_dict: list[StatOptionResponse],
+        self_eval_dict: list[StatOptionResponse],
         user_stats: UserStats,
         timeout=180,
     ):
@@ -62,7 +62,7 @@ class BasicStatsView(SessionView):
     #################################
 
     class RecentSelection(ui.Select):
-        def __init__(self, parent_view: "BasicStatsView", recent_dict_list: list[Ggp8StatOption]):
+        def __init__(self, parent_view: "BasicStatsView", recent_dict_list: list[StatOptionResponse]):
             self.parent_view = parent_view
 
             options = []
@@ -89,7 +89,7 @@ class BasicStatsView(SessionView):
             await interaction.response.edit_message(view=self.parent_view)
 
     class SelfEvalSelection(ui.Select):
-        def __init__(self, parent_view: "BasicStatsView", self_eval_dict_list: list[Ggp8StatOption]):
+        def __init__(self, parent_view: "BasicStatsView", self_eval_dict_list: list[StatOptionResponse]):
             self.parent_view = parent_view
 
             options = []

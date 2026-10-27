@@ -11,7 +11,7 @@
 This is a small-scale hobby Discord bot. There are maybe a few score submissions
 per minute. It's low throughput.
 
-Per decision 0009: **contributor experience outranks robustness.** Four
+**Contributor experience outranks robustness.** Four
 volunteers touch FZD's code, and a change that generally works and ships beats
 one that always works and never lands. When a choice trades "harder to
 contribute to" against "harder to break", choose the one that can be
@@ -21,8 +21,8 @@ contributed to.
 protects opens the repo cold, months after the last change, to fix one thing
 before an event. Everything here is judged by what they can tell at a glance:
 what a value holds, what a function takes, where a rule lives. Effort up front
-on a structure that gives them that is not the robustness 0009 declines; it is
-what 0009 is for. What is declined is defensive code — guards, retries,
+on a structure that gives them that is not the robustness this declines; it is
+what the rule is for. What is declined is defensive code — guards, retries,
 validation — against failures this scale makes negligible. Structure makes
 reading cheaper; robustness makes failing rarer. The first outranks the second.
 
@@ -116,7 +116,7 @@ command fail one at a time. One key per environment, minted by the API's
 
 **The API owns every rule, and this repo keeps no copy of one.** Which events
 are open, whether a slot takes a score or a time, the bounds, whether a machine
-must be named, who may be named a rival, whether a registration still fits —
+must be named, whether a registration still fits —
 each is decided inside the write, and the refusal is the sentence the user
 reads. Nothing here counts a registration, checks a capacity or ranks a result:
 a count read before a write is already stale by the time it is read, and the
@@ -257,9 +257,8 @@ uv run fzdbot --env stage-local-api    # terminal 2, in this repo
 
 `.env.stage-db` is `fzd-api`'s file and is described in its `AGENTS.md` under
 Environments: its `.env` with the database settings of `.env.stage` here,
-`FZD_API_DB_SSL=off`, port 8000, stage's GGP8 and rival event ids
-(`[735,736,737,738,739]` and `[736,737,738,739]`) and the minted key's
-`FZD_API_CLIENT_KEYS` entry.
+`FZD_API_DB_SSL=off`, port 8000, stage's GGP8 event ids
+(`[735,736,737,738,739]`) and the minted key's `FZD_API_CLIENT_KEYS` entry.
 
 `curl localhost:8000/health/database` must name `fzd_stage` before the bot
 starts. A bot key passes every staff gate, so stage data can be seeded through
@@ -322,10 +321,10 @@ shape exists to satisfy, which of two readings of a value is meant.
 Never in a comment:
 
 - **Progress, tasks, plans or project decisions.** No task numbers, no "the plan
-  asks for this", no "decision 0009". Those live in `~/projects/fzd/` and
+  asks for this", no "per the decision record". Those live outside this repo and
   describe how the work is organised, not what the code does. A reason worth
   keeping is worth stating on its own; if it cannot be, it is not the code's
-  business. Prose in this repo's docs may still cite them.
+  business. The citations live in `CLAUDE.local.md`, which is not committed.
 - **The past — of the code, of the data, or of a decision.** No "used to be", no
   "split from", no "rows written before the rename", no "we decided". History
   goes out of date silently: nothing fails, nobody notices, and the next reader

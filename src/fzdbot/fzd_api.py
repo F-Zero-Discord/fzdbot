@@ -5,13 +5,11 @@ from typing import Any
 import aiohttp
 
 from fzdbot.api_types import (
-    EliteRivalEventResponse,
-    EliteRivalResponse,
+    EvaluationAnswerResponse,
+    EvaluationResponse,
     EventDetailResponse,
     EventResponse,
     EventTypeResponse,
-    Ggp8EvaluationAnswerResponse,
-    Ggp8EvaluationResponse,
     Ggp8RegistrationResponse,
     LiveScoreboardResponse,
     MachineResponse,
@@ -19,12 +17,11 @@ from fzdbot.api_types import (
     PlayerStandingResponse,
     PlayerTagResponse,
     RegistrationEventResponse,
-    RivalEventResponse,
-    RivalsResponse,
     ScoreboardResponse,
     ScoreResultResponse,
     SlotResponse,
     TimeResultResponse,
+    TournamentSummaryResponse,
     TrackResponse,
 )
 
@@ -291,14 +288,14 @@ class FzdApi:
             f"/v1/players/{discord_user_id}/registrations/{scheduled_event_id}?now={_instant(now)}",
         )
 
-    async def evaluations(self, discord_user_id: int, scheduled_event_id: int) -> Ggp8EvaluationResponse:
+    async def evaluations(self, discord_user_id: int, scheduled_event_id: int) -> EvaluationResponse:
         """This player's questionnaire answers for one event, plus the two answer
         lists a form offers. `answered_for_this_event` tells a stored answer from
         one carried over from the player's most recent event.
         """
         return await self._request(
             "GET",
-            f"/v1/ggp8/players/{discord_user_id}/evaluations/{scheduled_event_id}",
+            f"/v1/players/{discord_user_id}/evaluations/{scheduled_event_id}",
         )
 
     async def save_evaluations(
@@ -309,10 +306,10 @@ class FzdApi:
         scheduled_event_id: int,
         self_evaluation_id: int,
         most_recent_event_id: int,
-    ) -> Ggp8EvaluationAnswerResponse:
+    ) -> EvaluationAnswerResponse:
         return await self._request(
             "PUT",
-            f"/v1/ggp8/players/{discord_user_id}/evaluations/{scheduled_event_id}",
+            f"/v1/players/{discord_user_id}/evaluations/{scheduled_event_id}",
             json={
                 "discord_user_name": discord_user_name,
                 "tag": tag,
@@ -332,6 +329,12 @@ class FzdApi:
         per event, each with their division or team and their Discord id.
         """
         return await self._request("GET", "/v1/ggp8/registrations")
+
+    async def tournaments(self, now: datetime) -> list[TournamentSummaryResponse]:
+        """Every tournament published at `now`, with its name and its rules and
+        help channels. An event row's `tournament` is the slug of one of these.
+        """
+        return await self._request("GET", f"/v1/tournaments?now={_instant(now)}")
 
     async def live_scoreboards(self) -> list[LiveScoreboardResponse]:
         """Every message registered as a live board: `message_id` and
@@ -366,64 +369,6 @@ class FzdApi:
     async def stop_scoreboard(self, message_id: int) -> None:
         """Take the message out of the registry. 204 whether or not it was in it."""
         await self._request("DELETE", f"/v1/scoreboards/{message_id}")
-
-    async def rivals(self, discord_user_id: int, now: datetime) -> RivalsResponse:
-        """Every event running a Rival Challenge with this player's standing in
-        it — registered, locked, their pick — and who has picked them.
-        """
-        return await self._request("GET", f"/v1/players/{discord_user_id}/rivals?now={_instant(now)}")
-
-    async def choose_rival(
-        self, discord_user_id: int, scheduled_event_id: int, rival_discord_user_id: int, now: datetime
-    ) -> RivalEventResponse:
-        """Name a rival for one event, replacing an earlier pick. The API holds
-        the rules: 404 for an event with no Rival Challenge or a rival not in the
-        caller's division, 409 when the caller is not registered or the event has
-        started, 422 for naming yourself. Answers the refreshed event.
-        """
-        return await self._request(
-            "PUT",
-            f"/v1/players/{discord_user_id}/rivals/{scheduled_event_id}?now={_instant(now)}",
-            json={"rival_discord_user_id": str(rival_discord_user_id)},
-        )
-
-    async def withdraw_rival(self, discord_user_id: int, scheduled_event_id: int, now: datetime) -> RivalEventResponse:
-        """Clear the caller's rival for one event. Idempotent; 409 once the event
-        has started.
-        """
-        return await self._request(
-            "DELETE",
-            f"/v1/players/{discord_user_id}/rivals/{scheduled_event_id}?now={_instant(now)}",
-        )
-
-    async def elite_rival(self, discord_user_id: int, now: datetime) -> EliteRivalResponse:
-        """Every rival event where this player holds an Elite Rival or may pick
-        one now, each with its pick and its registered Elite Rivals.
-        """
-        return await self._request("GET", f"/v1/players/{discord_user_id}/elite-rival?now={_instant(now)}")
-
-    async def choose_elite_rival(
-        self, discord_user_id: int, scheduled_event_id: int, rival_discord_user_id: int, now: datetime
-    ) -> EliteRivalEventResponse:
-        """Name the player's Elite Rival for one event, replacing their earlier
-        pick in it. The API holds the rules: 404 for an event with no Rival
-        Challenge, one the caller is not registered for, or a rival not on its
-        list; 409 once the event has started; 422 for naming yourself.
-        Answers the refreshed event.
-        """
-        return await self._request(
-            "PUT",
-            f"/v1/players/{discord_user_id}/elite-rival/{scheduled_event_id}?now={_instant(now)}",
-            json={"rival_discord_user_id": str(rival_discord_user_id)},
-        )
-
-    async def withdraw_elite_rival(
-        self, discord_user_id: int, scheduled_event_id: int, now: datetime
-    ) -> EliteRivalEventResponse:
-        """Clear the player's Elite Rival for one event. Idempotent; 409 once the event has started."""
-        return await self._request(
-            "DELETE", f"/v1/players/{discord_user_id}/elite-rival/{scheduled_event_id}?now={_instant(now)}"
-        )
 
     async def _request(self, method: str, path: str, json: dict[str, Any] | None = None) -> Any:
         if self._session is None or self._session.closed:

@@ -25,10 +25,6 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     error_alert_channel_id: int | None = 1186081056143708250
-    # Server channels the registration flow points users at. Optional: the copy
-    # falls back to a plain name when an id is not configured.
-    rules_channel_id: int | None = 1400989022603448440  # supernova-2-rules
-    help_channel_id: int | None = 1401686238737596506  # nova-2-help
     # Which Discord role each GGP8 event grants its registrants: a
     # `scheduled_event_id` to a role id, as JSON. Empty leaves the sync off, and
     # an event absent from it is never touched.
@@ -48,12 +44,7 @@ class Settings(BaseSettings):
     # what was set. Refusals are ephemeral either way.
     submission_confirmation_ephemeral: bool = False
 
-    @field_validator(
-        "error_alert_channel_id",
-        "rules_channel_id",
-        "help_channel_id",
-        mode="before",
-    )
+    @field_validator("error_alert_channel_id", mode="before")
     @classmethod
     def empty_channel_id_to_none(cls, value: object) -> object:
         if value == "":

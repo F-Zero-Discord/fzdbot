@@ -56,7 +56,6 @@ class FZDBot(commands.Bot):
             await self.load_extension("fzdbot.cogs.votes")
             await self.load_extension("fzdbot.cogs.events_users_handling")
             await self.load_extension("fzdbot.cogs.event_register")
-            await self.load_extension("fzdbot.cogs.ggp8_rivals")
             await self.load_extension("fzdbot.cogs.event_roles")
             logger.info("Loaded extensions")
         except Exception as error:

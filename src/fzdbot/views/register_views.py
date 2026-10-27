@@ -1,22 +1,11 @@
 import discord
 from discord import ui
 
-from fzdbot.settings import get_settings
+from fzdbot.api_types import TournamentSummaryResponse
 from fzdbot.utils.event_class import Division, Event, Team, UserRegistrations
 from fzdbot.utils.status_policies import registered_summary, user_event_status
 from fzdbot.utils.view_utils import DivTeam, NextStep, discord_timestamp
 from fzdbot.views.common import GenericButton, SessionView
-
-
-def channel_mention(channel_id: int | None, fallback: str) -> str:
-    """A clickable channel, or a readable name when the id is not configured.
-
-    `<#id>` is preferred over a link button or a hard-coded #name: Discord
-    renders it with the channel's current name, so a rename does not leave
-    stale copy behind.
-    """
-    return f"<#{channel_id}>" if channel_id else fallback
-
 
 WITHDRAW_NOTE = (
     "NOTE: If you withdraw when this event is full, and there are people on the "
@@ -489,6 +478,46 @@ class ConfirmWithdrawlView(SessionView):
         self.add_item(container)
 
 
+def tournaments_of(events: list[Event]) -> list[TournamentSummaryResponse]:
+    """The tournaments the events belong to, each once, in the events' order.
+    An event in no tournament adds nothing.
+    """
+    by_slug = {event.tournament["slug"]: event.tournament for event in events if event.tournament is not None}
+    return list(by_slug.values())
+
+
+def rules_text(tournaments: list[TournamentSummaryResponse]) -> str:
+    """One sentence per tournament, pointing at its rules channel; none for a
+    tournament with no channel entered. `<#id>` rather than the channel's
+    name: Discord renders it with the current name, so a rename leaves no
+    stale copy behind.
+    """
+    return " ".join(
+        f"The {tournament['name']} rules are in <#{tournament['rules_channel_id']}>."
+        for tournament in tournaments
+        if tournament["rules_channel_id"] is not None
+    )
+
+
+def questions_text(tournaments: list[TournamentSummaryResponse]) -> str:
+    """Where to ask, naming every tournament's help channel; empty when none
+    has one entered.
+    """
+    channels = [
+        f"<#{tournament['help_channel_id']}>" for tournament in tournaments if tournament["help_channel_id"] is not None
+    ]
+    if not channels:
+        return ""
+    return f"Questions? Ask in {' or '.join(channels)} - there is no such thing as a dumb one."
+
+
+def paragraph(*lines: str) -> str:
+    """The lines on their own rows, an empty line dropped: a sentence about a
+    channel is empty when there is no channel to name.
+    """
+    return "\n".join(line for line in lines if line)
+
+
 class ExitView(SessionView):
     """The last screen of the flow.
 
@@ -500,22 +529,22 @@ class ExitView(SessionView):
       - nothing loaded, because the user left at the rules screen
       - loaded, but the user is signed up for nothing
       - loaded, with registrations to confirm back
+
+    The rules and help channels named are the tournaments' own, read off the
+    events; a screen that knows no event names no channel.
     """
 
     def __init__(self, events: list[Event] | None = None, user: UserRegistrations | None = None):
         super().__init__(timeout=None)  # terminal screen: nothing to time out
 
-        settings = get_settings()
-        self.rules = channel_mention(settings.rules_channel_id, "the rules channel")
-        self.help = channel_mention(settings.help_channel_id, "the help channel")
-
         if user is None:
             self.add_item(self.farewell_container())
             return
 
-        summary = registered_summary(events or [], user)
+        events = events or []
+        summary = registered_summary(events, user)
         if not summary:
-            self.add_item(self.nothing_registered_container())
+            self.add_item(self.nothing_registered_container(tournaments_of(events)))
             return
 
         self.add_item(self.registered_container(summary))
@@ -524,29 +553,30 @@ class ExitView(SessionView):
     # Containers
     ###########################
 
-    def farewell_container(self) -> ui.Container:
+    @staticmethod
+    def farewell_container() -> ui.Container:
         """The user left before anything was loaded, so claim nothing about
         what they are or are not signed up for.
         """
         container = ui.Container(accent_colour=discord.Colour.light_grey())
         container.add_item(
             ui.TextDisplay(
-                "### Thanks for stopping by\n"
-                "Run `/register` whenever you're ready. The door is always open.\n"
-                f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
+                "### Thanks for stopping by\nRun `/register` whenever you're ready. The door is always open."
             )
         )
         return container
 
-    def nothing_registered_container(self) -> ui.Container:
+    @staticmethod
+    def nothing_registered_container(tournaments: list[TournamentSummaryResponse]) -> ui.Container:
         container = ui.Container(accent_colour=discord.Colour.light_grey())
         container.add_item(
             ui.TextDisplay(
-                "### Nothing registered. No problem\n"
-                f"You are not signed up for any upcoming events. {self.rules} is "
-                "a good look at what an event involves, and `/register` is there whenever "
-                "you change your mind.\n"
-                f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
+                paragraph(
+                    "### Nothing registered. No problem",
+                    "You are not signed up for any upcoming events. `/register` is there whenever you change your mind.",
+                    rules_text(tournaments),
+                    questions_text(tournaments),
+                )
             )
         )
         return container
@@ -580,17 +610,22 @@ class ExitView(SessionView):
 
         return text
 
-    def next_steps_text(self, summary: list[tuple[Event, DivTeam | None, str | None]]) -> str:
-        text = f"**Before race day**\nRead the rules for each event you signed up for. They are in {self.rules}."
-
+    @staticmethod
+    def next_steps_text(summary: list[tuple[Event, DivTeam | None, str | None]]) -> str:
+        tournaments = tournaments_of([event for event, _, _ in summary])
+        placements = ""
         if any(div_team_name for _, _, div_team_name in summary):
             # Only worth saying when the user actually picked something that can move.
-            text += "\nDivision and team placements are confirmed closer to the event; watch for a ping."
+            placements = "Division and team placements are confirmed closer to the event; watch for a ping."
 
-        text += (
-            "\n\n**Changed your mind?** Run `/register` again any time to edit or "
-            "withdraw.\n"
-            f"Questions? Ask in {self.help} - there is no such thing as a dumb one."
+        rules = "Read the rules for each event you signed up for."
+        where = rules_text(tournaments)
+        if where:
+            rules += " " + where
+
+        before_race_day = paragraph("**Before race day**", rules, placements)
+        changed_your_mind = paragraph(
+            "**Changed your mind?** Run `/register` again any time to edit or withdraw.",
+            questions_text(tournaments),
         )
-
-        return text
+        return before_race_day + "\n\n" + changed_your_mind

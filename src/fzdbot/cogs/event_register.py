@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from fzdbot.api_types import Ggp8StatOption
+from fzdbot.api_types import StatOptionResponse
 from fzdbot.fzd_api import FzdApi, FzdApiError
 from fzdbot.main import FZDBot
 from fzdbot.settings import get_settings
@@ -83,8 +83,8 @@ class RegSession:
 
         # The answer lists the stats screen offers. They arrive with the answers
         # themselves, in the same call, so the screen needs no read of its own.
-        self.recent_options: list[Ggp8StatOption] = []
-        self.self_eval_options: list[Ggp8StatOption] = []
+        self.recent_options: list[StatOptionResponse] = []
+        self.self_eval_options: list[StatOptionResponse] = []
 
     @property
     def event(self) -> Event:
@@ -119,14 +119,18 @@ class RegSession:
         logger.info("register: initial API call complete in %.4f seconds", time.perf_counter() - start)
 
     async def _read_registrations(self) -> None:
-        """The events, their groups and where this player stands, in one call.
+        """The events, their groups and where this player stands, in one call;
+        the tournaments they belong to in a second, for the name and channels
+        the closing screen shows.
 
         The payload carries each group's capacity and headcount, so nothing
         here counts anything, and the caller's registrations come off the
         same answer rather than a second one.
         """
-        payload = await self.api.registrations(self.origin.user.id, datetime.now(UTC))
-        self.events = [Event.from_api(event) for event in payload]
+        now = datetime.now(UTC)
+        payload = await self.api.registrations(self.origin.user.id, now)
+        tournaments = {tournament["slug"]: tournament for tournament in await self.api.tournaments(now)}
+        self.events = [Event.from_api(event, tournaments) for event in payload]
         self.user = UserRegistrations.from_api(payload)
 
     async def ready(self) -> None:

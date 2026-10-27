@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from fzdbot.api_types import Ggp8StatOption, RegistrationEventResponse, RegistrationGroupResponse
+from fzdbot.api_types import (
+    RegistrationEventResponse,
+    RegistrationGroupResponse,
+    StatOptionResponse,
+    TournamentSummaryResponse,
+)
 from fzdbot.fzd_api import FzdApi
 from fzdbot.utils.view_utils import DivTeam
 
@@ -21,7 +26,7 @@ def instant_to_naive_utc(value: str | None) -> datetime | None:
     return naive_utc(value) if value is not None else None
 
 
-def option_id(options: list[Ggp8StatOption], text: str | None) -> int | None:
+def option_id(options: list[StatOptionResponse], text: str | None) -> int | None:
     """The id of the option carrying `text`, or None.
 
     The API answers a stored questionnaire answer as text and offers the
@@ -97,6 +102,7 @@ def _group_from_api[G: Group](cls: type[G], group: RegistrationGroupResponse, sc
 class Event:
     scheduled_event_id: int
     event_name: str
+    tournament: TournamentSummaryResponse | None
     starts_at: datetime
     registration_open: bool
     registration_opens_at: datetime | None
@@ -131,14 +137,18 @@ class Event:
         return len(self.divisions) == 1
 
     @staticmethod
-    def from_api(event: RegistrationEventResponse) -> "Event":
+    def from_api(event: RegistrationEventResponse, tournaments: dict[str, TournamentSummaryResponse]) -> "Event":
         """An event runs on divisions or on teams, so the other list stays
-        empty and `div_or_team` reads which from that.
+        empty and `div_or_team` reads which from that. The event row names its
+        tournament by slug only; `tournaments`, keyed by slug, supplies the row.
+        A weekly flagged for registration belongs to none.
         """
         scheduled_event_id = event["scheduled_event_id"]
+        slug = event["tournament"]
         self = Event(
             scheduled_event_id=scheduled_event_id,
             event_name=event["event"],
+            tournament=tournaments[slug] if slug is not None else None,
             starts_at=naive_utc(event["starts_at"]),
             registration_open=event["registration_open"],
             registration_opens_at=instant_to_naive_utc(event["registration_opens_at"]),
@@ -191,7 +201,7 @@ class UserStats:
     @staticmethod
     async def load_from_api(
         api: FzdApi, discord_user_id: int, scheduled_event_id: int
-    ) -> tuple["UserStats", list[Ggp8StatOption], list[Ggp8StatOption]]:
+    ) -> tuple["UserStats", list[StatOptionResponse], list[StatOptionResponse]]:
         """This player's answers for one event, and the two lists a form offers.
 
         An answer the player gave for some other event arrives filled in

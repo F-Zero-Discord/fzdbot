@@ -89,6 +89,7 @@ def detail(
         "scheduled_event_id": 1,
         "event": "Ashes",
         "display_name": None,
+        "tournament": None,
         "starts_at": "2026-09-26T18:00:00Z",
         "ends_at": "2026-09-26T22:00:00Z",
         "mode": "99",
